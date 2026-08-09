@@ -149,14 +149,19 @@ type BenchmarkComparisonTableProps = {
   targets: BenchmarkTarget[];
   snapshots: MetricSnapshot[];
   campuses: Campus[];
+  metricKeys?: string[] | null;
+  campusId?: string | null;
 };
 
 export function BenchmarkComparisonTable({
   targets,
   snapshots,
   campuses,
+  metricKeys = null,
+  campusId = null,
 }: BenchmarkComparisonTableProps) {
   const [campusFilter, setCampusFilter] = useState("all");
+  const effectiveCampusFilter = campusId ?? campusFilter;
   const [sortColumn, setSortColumn] = useState<SortColumn>("status");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
@@ -169,16 +174,25 @@ export function BenchmarkComparisonTable({
     }
   }
 
+  const scopedTargets = useMemo(() => {
+    if (!metricKeys || metricKeys.length === 0) return targets;
+    const allowed = new Set(metricKeys);
+    return targets.filter((target) => target.metric && allowed.has(target.metric.key));
+  }, [targets, metricKeys]);
+
   const unsortedRows = useMemo(() => {
     const built: BenchmarkRow[] = [];
     const churchWideMetricKeys = new Set<string>();
 
-    for (const target of targets) {
+    for (const target of scopedTargets) {
       if (!target.metric) continue;
 
-      if (campusFilter === "church-wide") {
+      if (effectiveCampusFilter === "church-wide") {
         if (target.campus_id !== null) continue;
-      } else if (campusFilter !== "all" && target.campus_id !== campusFilter) {
+      } else if (
+        effectiveCampusFilter !== "all" &&
+        target.campus_id !== effectiveCampusFilter
+      ) {
         continue;
       }
 
@@ -197,9 +211,9 @@ export function BenchmarkComparisonTable({
     }
 
     // Church-wide aggregate rows (matches KPI card logic when viewing all campuses)
-    if (campusFilter === "all") {
+    if (effectiveCampusFilter === "all") {
       const targetsByMetric = new Map<string, BenchmarkTarget[]>();
-      for (const target of targets) {
+      for (const target of scopedTargets) {
         if (!target.metric) continue;
         const list = targetsByMetric.get(target.metric.key) ?? [];
         list.push(target);
@@ -229,7 +243,7 @@ export function BenchmarkComparisonTable({
     }
 
     return built;
-  }, [targets, snapshots, campusFilter]);
+  }, [scopedTargets, snapshots, effectiveCampusFilter]);
 
   const rows = useMemo(
     () =>
@@ -239,7 +253,7 @@ export function BenchmarkComparisonTable({
     [unsortedRows, sortColumn, sortDirection]
   );
 
-  if (targets.length === 0) return null;
+  if (scopedTargets.length === 0) return null;
 
   return (
     <div className="card bg-base-100 border border-base-300 shadow-sm">
@@ -252,27 +266,29 @@ export function BenchmarkComparisonTable({
               than 10% below · Click column headers to sort
             </p>
           </div>
-          <label className="form-control w-full sm:w-52">
-            <span className="label py-0 pb-1">
-              <span className="label-text text-xs font-medium uppercase tracking-wide">
-                Campus
+          {!campusId && (
+            <label className="form-control w-full sm:w-52">
+              <span className="label py-0 pb-1">
+                <span className="label-text text-xs font-medium uppercase tracking-wide">
+                  Campus
+                </span>
               </span>
-            </span>
-            <select
-              className="select select-bordered select-sm w-full"
-              value={campusFilter}
-              onChange={(e) => setCampusFilter(e.target.value)}
-              aria-label="Filter benchmarks by campus"
-            >
-              <option value="all">All Benchmarks</option>
-              <option value="church-wide">Church-wide</option>
-              {campuses.map((campus) => (
-                <option key={campus.id} value={campus.id}>
-                  {campus.name}
-                </option>
-              ))}
-            </select>
-          </label>
+              <select
+                className="select select-bordered select-sm w-full"
+                value={campusFilter}
+                onChange={(e) => setCampusFilter(e.target.value)}
+                aria-label="Filter benchmarks by campus"
+              >
+                <option value="all">All Benchmarks</option>
+                <option value="church-wide">Church-wide</option>
+                {campuses.map((campus) => (
+                  <option key={campus.id} value={campus.id}>
+                    {campus.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
 
         {rows.length === 0 ? (

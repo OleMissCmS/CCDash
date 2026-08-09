@@ -53,6 +53,18 @@ export type UserProfile = {
   display_name: string | null;
   role: "staff" | "admin";
   financial_insights: boolean;
+  can_view_overview: boolean;
+  can_view_adult_discipleship: boolean;
+  can_view_next_gen: boolean;
+  can_view_weekend_reach: boolean;
+  can_view_operations: boolean;
+  can_edit_benchmarks: boolean;
+  can_access_chms: boolean;
+  can_manage_chms_processes: boolean;
+};
+
+export type ManagedUser = UserProfile & {
+  email: string;
 };
 
 export type AlertThreshold = {
@@ -74,6 +86,7 @@ export type Concern = {
   message: string;
 };
 
+/** @deprecated Use PeriodRange from lib/periods */
 export type YearMode = "fiscal" | "calendar";
 
 export const CATEGORY_LABELS: Record<MetricCategory, string> = {
@@ -93,6 +106,7 @@ export const THEMES = [
 export type ThemeName = (typeof THEMES)[number];
 
 export const DEFAULT_FISCAL_YEAR = "FY25/26";
+export const LAST_FISCAL_YEAR = "FY24/25";
 export const TARGET_FISCAL_YEAR = "FY26/27";
 
 export const FISCAL_YEAR_OPTIONS = [

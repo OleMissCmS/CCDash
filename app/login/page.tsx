@@ -7,12 +7,12 @@ export default function LoginPage() {
       <section className="login-brand-panel flex flex-col justify-center gap-6 p-8 lg:p-12">
         <BrandLogo showSubtitle href={null} size="md" />
         <div className="max-w-md space-y-3">
-          <p className="login-brand-headline text-xl font-bold leading-snug">
-            Seen, known &amp; loved.
+          <p className="login-brand-headline text-xl leading-snug">
+            Ministry dashboard in one place.
           </p>
           <p className="login-brand-copy text-sm">
-            Ministry operations dashboard for Community Church campuses in
-            Central Michigan.
+            Track vital signs, stewardship, weekend reach, and volunteer
+            staffing across campuses.
           </p>
         </div>
       </section>

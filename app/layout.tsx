@@ -10,8 +10,8 @@ const montserrat = Montserrat({
 });
 
 export const metadata: Metadata = {
-  title: "CCDash — Community Church",
-  description: "Operations dashboard for Community Church multi-campus ministry",
+  title: "Community Church — Ministry Dashboard",
+  description: "Ministry dashboard, vital signs, and volunteer matrix",
   icons: {
     icon: "/brand/favicon.png",
     apple: "/brand/cc-icon.png",
@@ -29,6 +29,12 @@ export default function RootLayout({
       data-theme="community"
       className={`${montserrat.variable} h-full`}
     >
+      <head>
+        <link
+          href="https://fonts.cdnfonts.com/css/d-din"
+          rel="stylesheet"
+        />
+      </head>
       <body className="min-h-full bg-base-200 text-base-content antialiased">
         <ThemeInitializer />
         {children}

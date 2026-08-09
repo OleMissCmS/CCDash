@@ -1,18 +1,19 @@
 "use client";
 
 import { Suspense } from "react";
+import type { ViewSection } from "@/lib/sections";
 import { CategoryTabs } from "./CategoryTabs";
 import { ComparisonToggle } from "./ComparisonToggle";
 
 type DashboardToolbarProps = {
-  canViewStewardship: boolean;
+  allowedSections: ViewSection[];
 };
 
-export function DashboardToolbar({ canViewStewardship }: DashboardToolbarProps) {
+export function DashboardToolbar({ allowedSections }: DashboardToolbarProps) {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <Suspense fallback={<div className="skeleton h-10 w-full max-w-xl" />}>
-        <CategoryTabs canViewStewardship={canViewStewardship} />
+        <CategoryTabs allowedSections={allowedSections} />
       </Suspense>
       <Suspense fallback={<div className="skeleton h-10 w-48" />}>
         <ComparisonToggle />

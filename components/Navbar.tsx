@@ -3,6 +3,11 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import {
+  canEditBenchmarks,
+  canManageUsers,
+  isAdmin,
+} from "@/lib/permissions";
 import type { UserProfile } from "@/lib/types";
 import { BrandLogo } from "./BrandLogo";
 import { ThemeSelector } from "./ThemeSelector";
@@ -30,20 +35,24 @@ export function Navbar({
   return (
     <header className="navbar-brand-bar">
       <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 lg:px-8">
-        {/* Top row: logo + actions */}
         <div className="flex items-center justify-between gap-4">
           <BrandLogo showSubtitle href="/dashboard" />
           <div className="flex shrink-0 items-center gap-2">
             <ThemeSelector />
-            {profile?.role === "admin" && (
-              <>
-                <Link href="/settings/benchmarks" className="navbar-link">
-                  Benchmarks
-                </Link>
-                <Link href="/settings/alerts" className="navbar-link">
-                  Alerts
-                </Link>
-              </>
+            {profile && canEditBenchmarks(profile) && (
+              <Link href="/settings/benchmarks" className="navbar-link">
+                Benchmarks
+              </Link>
+            )}
+            {profile && isAdmin(profile) && (
+              <Link href="/settings/alerts" className="navbar-link">
+                Alerts
+              </Link>
+            )}
+            {profile && canManageUsers(profile) && (
+              <Link href="/settings/users" className="navbar-link">
+                Users
+              </Link>
             )}
             <div className="dropdown dropdown-end">
               <div tabIndex={0} role="button" className="navbar-user-btn">
@@ -55,7 +64,8 @@ export function Navbar({
               >
                 <li className="menu-title text-xs">
                   {profile?.role === "admin" ? "Administrator" : "Staff"}
-                  {profile?.financial_insights && " · Finance access"}
+                  {profile?.can_view_operations && " · Operations access"}
+                  {profile?.can_edit_benchmarks && " · Benchmark editor"}
                 </li>
                 <li>
                   <button type="button" onClick={signOut}>
@@ -67,7 +77,6 @@ export function Navbar({
           </div>
         </div>
 
-        {/* Filters row */}
         <div className="navbar-controls">
           {campusFilter}
           {yearToggle}

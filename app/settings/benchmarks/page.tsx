@@ -10,6 +10,7 @@ import {
   getMetrics,
   getUserProfile,
 } from "@/lib/metrics";
+import { canEditBenchmarks } from "@/lib/permissions";
 import { TARGET_FISCAL_YEAR } from "@/lib/types";
 
 export default async function BenchmarksSettingsPage() {
@@ -17,7 +18,7 @@ export default async function BenchmarksSettingsPage() {
   const profile = await getUserProfile(supabase);
 
   if (!profile) redirect("/login");
-  if (profile.role !== "admin") redirect("/dashboard");
+  if (!canEditBenchmarks(profile)) redirect("/dashboard");
 
   const [metrics, campuses, benchmarks] = await Promise.all([
     getMetrics(supabase),

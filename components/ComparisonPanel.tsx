@@ -118,6 +118,13 @@ export function ComparisonPanel({
   }
 
   if (mode === "vs-church" && selectedCampus) {
+    const chartMetric =
+      metrics.find(
+        (metric) =>
+          getCampusMetricValue(snapshots, metric.key, selectedCampus.id) != null &&
+          getChurchWideMetricValue(snapshots, metric.key) != null
+      ) ?? metrics[0];
+
     return (
       <div className="card bg-base-100 border border-base-300 shadow-sm">
         <div className="card-body gap-4">
@@ -185,20 +192,17 @@ export function ComparisonPanel({
                 value:
                   getCampusMetricValue(
                     snapshots,
-                    metrics[0]?.key ?? "",
+                    chartMetric?.key ?? "",
                     selectedCampus.id
                   ) ?? 0,
               },
               {
                 campus: "Church-wide",
                 value:
-                  getChurchWideMetricValue(
-                    snapshots,
-                    metrics[0]?.key ?? ""
-                  ) ?? 0,
+                  getChurchWideMetricValue(snapshots, chartMetric?.key ?? "") ?? 0,
               },
             ]}
-            title={`${metrics[0]?.label ?? "Metric"}: campus vs church-wide`}
+            title={`${chartMetric?.label ?? "Metric"}: campus vs church-wide`}
           />
         </div>
       </div>

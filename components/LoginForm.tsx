@@ -4,6 +4,9 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
+const LOGIN_INPUT_CLASS =
+  "input input-bordered w-full min-h-11 border-2 shadow-sm";
+
 export function LoginForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -55,9 +58,9 @@ export function LoginForm() {
   return (
     <div className="card w-full max-w-md bg-base-100 shadow-xl border border-base-300">
       <div className="card-body">
-        <h1 className="text-2xl font-bold text-[var(--cc-timber)]">Sign in</h1>
+        <h1 className="text-2xl text-[var(--cc-timber)]">Sign in</h1>
         <p className="text-sm text-base-content/70">
-          Staff access to CCDash
+          Staff access to the ministry dashboard
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4 mt-4">
@@ -65,7 +68,7 @@ export function LoginForm() {
             <span className="label-text">Email</span>
             <input
               type="email"
-              className="input input-bordered w-full"
+              className={LOGIN_INPUT_CLASS}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -75,7 +78,7 @@ export function LoginForm() {
             <span className="label-text">Password</span>
             <input
               type="password"
-              className="input input-bordered w-full"
+              className={LOGIN_INPUT_CLASS}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required

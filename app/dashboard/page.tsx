@@ -1,11 +1,12 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
+import { AppTopNav } from "@/components/AppTopNav";
 import { Navbar } from "@/components/Navbar";
 import { CampusFilter } from "@/components/CampusFilter";
-import { YearToggle } from "@/components/YearToggle";
 import { DashboardToolbar } from "@/components/DashboardToolbar";
 import { ConcernsPanel } from "@/components/ConcernsPanel";
 import { DashboardSection } from "@/components/DashboardSection";
+import { VitalSignsSection } from "@/components/VitalSignsSection";
 import { createClient } from "@/lib/supabase/server";
 import type { CompareMode } from "@/lib/comparison";
 import {
@@ -15,13 +16,21 @@ import {
   getCampuses,
   getUserProfile,
 } from "@/lib/metrics";
-import type { MetricCategory, YearMode } from "@/lib/types";
+import {
+  allowedSections,
+  canViewOperations,
+  resolveSectionForProfile,
+} from "@/lib/permissions";
+import {
+  isVitalSignsSection,
+  parseViewSection,
+  type ViewSection,
+} from "@/lib/sections";
 
 type DashboardPageProps = {
   searchParams: Promise<{
     campus?: string;
-    section?: MetricCategory;
-    year?: YearMode;
+    section?: ViewSection | string;
     compare?: CompareMode;
   }>;
 };
@@ -35,14 +44,24 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
   const campuses = await getCampuses(supabase);
   const campusId = params.campus ?? null;
-  const section = (params.section ?? "attendance") as MetricCategory;
-  const yearMode = (params.year ?? "fiscal") as YearMode;
   const compareMode = (params.compare ?? "off") as CompareMode;
-  const canViewStewardship =
-    profile.financial_insights || profile.role === "admin";
+  const visibleSections = allowedSections(profile);
+  const section = resolveSectionForProfile(profile, params.section);
+  const canViewFinancial = canViewOperations(profile);
 
-  if (section === "stewardship" && !canViewStewardship) {
-    redirect("/dashboard?section=attendance");
+  if (visibleSections.length === 0) {
+    redirect("/login");
+  }
+
+  if (params.section) {
+    const requested = parseViewSection(params.section, section);
+    if (requested !== section) {
+      const redirectParams = new URLSearchParams();
+      redirectParams.set("section", section);
+      if (params.campus) redirectParams.set("campus", params.campus);
+      if (params.compare) redirectParams.set("compare", params.compare);
+      redirect(`/dashboard?${redirectParams.toString()}`);
+    }
   }
 
   const allSnapshots = await getAnnualSnapshots(supabase);
@@ -62,35 +81,36 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             <CampusFilter campuses={campuses} />
           </Suspense>
         }
-        yearToggle={
-          <Suspense fallback={null}>
-            <YearToggle />
-          </Suspense>
-        }
       />
 
       <main className="mx-auto w-full max-w-7xl flex-1 p-4 md:p-8 space-y-8">
-        <header className="space-y-1">
+        <header className="space-y-4">
+          <AppTopNav />
+          <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">
             Ministry dashboard
           </h1>
           <p className="text-sm text-base-content/70">
             FY25/26 closeout vs FY26/27 targets · Community Church
           </p>
+          </div>
         </header>
 
         <ConcernsPanel concerns={concerns} />
 
-        <DashboardToolbar canViewStewardship={canViewStewardship} />
+        <DashboardToolbar allowedSections={visibleSections} />
 
-        <DashboardSection
-          category={section}
-          campusId={campusId}
-          yearMode={yearMode}
-          compareMode={compareMode}
-          campuses={campuses}
-          canViewStewardship={canViewStewardship}
-        />
+        {isVitalSignsSection(section) ? (
+          <VitalSignsSection campusId={campusId} />
+        ) : (
+          <DashboardSection
+            section={section}
+            campusId={campusId}
+            compareMode={compareMode}
+            campuses={campuses}
+            canViewFinancial={canViewFinancial}
+          />
+        )}
       </main>
     </>
   );

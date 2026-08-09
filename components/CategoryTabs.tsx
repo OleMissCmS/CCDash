@@ -1,28 +1,25 @@
 "use client";
 
-import type { MetricCategory } from "@/lib/types";
-import { CATEGORY_LABELS } from "@/lib/types";
+import {
+  parseViewSection,
+  VIEW_SECTION_LABELS,
+  type ViewSection,
+} from "@/lib/sections";
 import { useRouter, useSearchParams } from "next/navigation";
 
-const CATEGORIES: MetricCategory[] = [
-  "attendance",
-  "serving",
-  "groups",
-  "engagement",
-  "stewardship",
-];
-
 type CategoryTabsProps = {
-  canViewStewardship: boolean;
+  allowedSections: ViewSection[];
 };
 
-export function CategoryTabs({ canViewStewardship }: CategoryTabsProps) {
+export function CategoryTabs({ allowedSections }: CategoryTabsProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const current =
-    (searchParams.get("section") as MetricCategory) ?? "attendance";
+  const current = parseViewSection(
+    searchParams.get("section") ?? undefined,
+    allowedSections[0] ?? "overview"
+  );
 
-  function setSection(section: MetricCategory) {
+  function setSection(section: ViewSection) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("section", section);
     router.push(`/dashboard?${params.toString()}`);
@@ -30,17 +27,15 @@ export function CategoryTabs({ canViewStewardship }: CategoryTabsProps) {
 
   return (
     <div role="tablist" className="tabs tabs-boxed bg-base-200 p-1 flex-wrap">
-      {CATEGORIES.filter(
-        (c) => c !== "stewardship" || canViewStewardship
-      ).map((category) => (
+      {allowedSections.map((section) => (
         <button
-          key={category}
+          key={section}
           type="button"
           role="tab"
-          className={`tab ${current === category ? "tab-active" : ""}`}
-          onClick={() => setSection(category)}
+          className={`tab ${current === section ? "tab-active" : ""}`}
+          onClick={() => setSection(section)}
         >
-          {CATEGORY_LABELS[category]}
+          {VIEW_SECTION_LABELS[section]}
         </button>
       ))}
     </div>

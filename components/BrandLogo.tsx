@@ -36,7 +36,7 @@ export function BrandLogo({
         </p>
         {showSubtitle && (
           <p className="navbar-logo-sub text-xs truncate">
-            Operations dashboard
+            Ministry dashboard
           </p>
         )}
       </div>

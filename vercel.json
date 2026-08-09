@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/sync-attendance",
+      "schedule": "0 19 * * 2"
+    },
+    {
+      "path": "/api/cron/sync-giving",
+      "schedule": "0 19 * * 1"
+    }
+  ]
+}

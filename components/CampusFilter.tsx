@@ -5,9 +5,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 type CampusFilterProps = {
   campuses: Campus[];
+  basePath?: string;
 };
 
-export function CampusFilter({ campuses }: CampusFilterProps) {
+export function CampusFilter({
+  campuses,
+  basePath = "/dashboard",
+}: CampusFilterProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const current = searchParams.get("campus") ?? "all";
@@ -16,7 +20,7 @@ export function CampusFilter({ campuses }: CampusFilterProps) {
     const params = new URLSearchParams(searchParams.toString());
     if (value === "all") params.delete("campus");
     else params.set("campus", value);
-    router.push(`/dashboard?${params.toString()}`);
+    router.push(`${basePath}?${params.toString()}`);
   }
 
   return (
