@@ -155,18 +155,28 @@ function CalendarYearTrendChart({
               labelFormatter={(label) => `Month: ${label}`}
             />
             <Legend />
-            {activeYears.map((series) => (
-              <Line
-                key={series.year}
-                type="monotone"
-                dataKey={String(series.year)}
-                name={series.label}
-                stroke={series.color}
-                strokeWidth={2.5}
-                dot={{ r: 3, strokeWidth: 2, fill: series.color }}
-                connectNulls={false}
-              />
-            ))}
+            {activeYears.map((series) => {
+              const isCurrent =
+                series.year === Math.max(...activeYears.map((item) => item.year));
+              return (
+                <Line
+                  key={series.year}
+                  type="monotone"
+                  dataKey={String(series.year)}
+                  name={isCurrent ? `${series.label} (current)` : series.label}
+                  stroke={isCurrent ? "#032d60" : series.color}
+                  strokeWidth={isCurrent ? 4 : 2}
+                  strokeOpacity={isCurrent ? 1 : 0.7}
+                  dot={{
+                    r: isCurrent ? 5 : 3,
+                    strokeWidth: 2,
+                    fill: isCurrent ? "#032d60" : series.color,
+                  }}
+                  activeDot={{ r: isCurrent ? 7 : 5 }}
+                  connectNulls={false}
+                />
+              );
+            })}
           </LineChart>
         </ResponsiveContainer>
       </div>

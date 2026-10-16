@@ -17,6 +17,7 @@ import {
   canViewVolunteerMatrix,
   allowedCampusesForScope,
   campusScope,
+  isAdmin,
   resolveSectionForProfile,
 } from "@/lib/permissions";
 import {
@@ -132,6 +133,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           <VitalSignsSection
             campusId={campusId}
             visibleCampusIds={visibleCampusIds}
+            allowBenchmarkEdit={isAdmin(profile)}
           />
         ) : (
           <DashboardSection
@@ -142,6 +144,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             canViewFinancial={canViewFinancial}
             fullCampusAccess={scope.full}
             churchWideAccess={scope.churchWide}
+            allowBenchmarkEdit={isAdmin(profile)}
           />
         )}
       </main>

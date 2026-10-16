@@ -1,11 +1,17 @@
 import { BaptismsPanel } from "@/components/BaptismsPanel";
+import type { CardBenchmarkEdit } from "@/components/CardBenchmarkMenu";
 import { AttendanceCalendarYearTrendChart } from "@/components/Charts";
 import { VitalSignCard } from "@/components/VitalSignCard";
 import { createClient } from "@/lib/supabase/server";
 import {
   getAttendanceCalendarYearTrend,
+  getBenchmarkTargets,
   getCampuses,
+  getMetrics,
 } from "@/lib/metrics";
+import { defaultMinistryAreaForMetric } from "@/lib/sections";
+import type { BenchmarkTarget, Metric } from "@/lib/types";
+import { TARGET_FISCAL_YEAR } from "@/lib/types";
 import { getVitalSignsData } from "@/lib/vital-signs";
 
 function SectionHeading({
@@ -25,18 +31,61 @@ function SectionHeading({
   );
 }
 
+function benchmarkEditForMetric(
+  metricKey: string,
+  metrics: Metric[],
+  benchmarks: BenchmarkTarget[],
+  campusId: string | null,
+  campusName: string
+): CardBenchmarkEdit | null {
+  const metric = metrics.find((item) => item.key === metricKey);
+  if (!metric) return null;
+
+  const existing =
+    benchmarks.find(
+      (benchmark) =>
+        benchmark.metric_id === metric.id &&
+        (benchmark.campus_id ?? null) === campusId
+    ) ?? null;
+
+  return {
+    metricId: metric.id,
+    metricLabel: metric.label,
+    metricUnit: metric.unit,
+    campusId,
+    campusName,
+    fiscalYear: existing?.fiscal_year ?? TARGET_FISCAL_YEAR,
+    ministryArea:
+      existing?.ministry_area ?? defaultMinistryAreaForMetric(metric.key),
+    benchmark: existing
+      ? {
+          id: existing.id,
+          targetValue: existing.target_value,
+          stretchValue: existing.stretch_value,
+          label: existing.label,
+        }
+      : null,
+  };
+}
+
 export async function VitalSignsSection({
   campusId = null,
   visibleCampusIds = null,
+  allowBenchmarkEdit = false,
 }: {
   campusId?: string | null;
   visibleCampusIds?: string[] | null;
+  allowBenchmarkEdit?: boolean;
 }) {
   const supabase = await createClient();
   const campuses = await getCampuses(supabase);
-  const [data, attendanceTrend] = await Promise.all([
+  const [data, attendanceTrend, metrics, benchmarks] = await Promise.all([
     getVitalSignsData(supabase, campuses, campusId),
     getAttendanceCalendarYearTrend(supabase, campusId),
+    allowBenchmarkEdit ? getMetrics(supabase) : Promise.resolve([]),
+    allowBenchmarkEdit
+      ? getBenchmarkTargets(supabase, TARGET_FISCAL_YEAR)
+      : Promise.resolve([]),
   ]);
   const attendanceScopeLabel =
     campuses.find((campus) => campus.id === campusId)?.name ?? "Church-wide";
@@ -73,6 +122,16 @@ export async function VitalSignsSection({
   const attendanceRows = data.attendance.byCampus.filter(isVisibleCampus);
   const kidsRows = data.kids.byCampus.filter(isVisibleCampus);
   const servingRows = data.serving.byCampus.filter(isVisibleCampus);
+  const benchmarkFor = (metricKey: string) =>
+    allowBenchmarkEdit
+      ? benchmarkEditForMetric(
+          metricKey,
+          metrics,
+          benchmarks,
+          campusId,
+          attendanceScopeLabel
+        )
+      : null;
 
   return (
     <div className="space-y-8">
@@ -85,10 +144,12 @@ export async function VitalSignsSection({
           <VitalSignCard
             title={`${attendanceScopeLabel} · ${data.latestMonthLabel}`}
             reading={attendanceCards.monthly}
+            benchmarkEdit={benchmarkFor("total_in_person_avg")}
           />
           <VitalSignCard
             title={`${attendanceScopeLabel} · ${data.fiscalYearLabel}`}
             reading={attendanceCards.fiscalYear}
+            benchmarkEdit={benchmarkFor("total_in_person_avg")}
           />
         </div>
         {attendanceTrend.length > 0 && (
@@ -147,23 +208,27 @@ export async function VitalSignsSection({
             className="sfdc-vital-sign-card"
             title={`${attendanceScopeLabel} · ${data.latestMonthLabel} kids`}
             reading={kidsCards.monthly}
+            benchmarkEdit={benchmarkFor("kids_avg")}
           />
           <VitalSignCard
             className="sfdc-vital-sign-card"
             title={`${attendanceScopeLabel} · Kids YoY`}
             reading={kidsCards.yearOverYearKids}
+            benchmarkEdit={benchmarkFor("kids_avg")}
           />
           <VitalSignCard
             className="sfdc-vital-sign-card"
             title={`${attendanceScopeLabel} · ${data.latestMonthLabel} %`}
             reading={kidsCards.monthlyPct}
             unit="percent"
+            benchmarkEdit={benchmarkFor("kids_pct_of_attendance")}
           />
           <VitalSignCard
             className="sfdc-vital-sign-card"
             title={`${attendanceScopeLabel} · % YoY`}
             reading={kidsCards.yearOverYearPct}
             unit="percent"
+            benchmarkEdit={benchmarkFor("kids_pct_of_attendance")}
           />
         </div>
         {kidsRows.length > 0 && (
@@ -225,11 +290,13 @@ export async function VitalSignsSection({
             title="Total People Serving"
             reading={data.serving.total}
             subtitleItalic
+            benchmarkEdit={benchmarkFor("total_serving")}
           />
           <VitalSignCard
             title="% of Church Serving"
             reading={data.serving.pct}
             unit="percent"
+            benchmarkEdit={benchmarkFor("total_serving")}
           />
         </div>
         {!campusId && servingRows.length > 0 && (
@@ -263,6 +330,7 @@ export async function VitalSignsSection({
             title="% Participating in a Small Group"
             reading={data.groups.participationPct}
             unit="percent"
+            benchmarkEdit={benchmarkFor("group_participation_rate")}
           />
         </div>
       </section>

@@ -25,6 +25,7 @@ export function EdgyGaugeKpiCard(props: KpiCardRenderProps) {
     subtitle,
     headerAction,
     budgetPaceGauge,
+    benchmarkEdit,
   } = props;
   const showGauge = benchmark != null && stoplight != null;
 
@@ -32,6 +33,7 @@ export function EdgyGaugeKpiCard(props: KpiCardRenderProps) {
     <SfdcWidget
       title={metric.label}
       className="sfdc-kpi-card"
+      benchmarkEdit={benchmarkEdit}
       headerAction={
         headerAction || stoplight ? (
           <div className="flex items-center gap-2">

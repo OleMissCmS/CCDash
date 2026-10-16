@@ -1173,6 +1173,7 @@ export type LastWeekAttendanceByCampus = {
   serviceDate: string;
   lastMonthLabel: string;
   campuses: Array<{
+    slug: string;
     name: string;
     lastSunday: number;
     lastMonthAvg: number | null;
@@ -1230,6 +1231,7 @@ async function getLastWeekAttendanceFromDb(
     serviceDate,
     lastMonthLabel: formatMonthStartLabel(previousMonthStart),
     campuses: rows.map((row) => ({
+      slug: row.campus?.slug ?? "",
       name: row.campus?.name ?? "Campus",
       lastSunday: row.value,
       lastMonthAvg: null,
@@ -1284,6 +1286,7 @@ async function getLastWeekCampusAttendanceByCampus(
       if (lastSunday == null && lastMonthAvg == null) return null;
 
       return {
+        slug,
         name: campusNameBySlug.get(slug) ?? slug,
         lastSunday: lastSunday ?? 0,
         lastMonthAvg,

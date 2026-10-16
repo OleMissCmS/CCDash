@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import type { CardBenchmarkEdit } from "@/components/CardBenchmarkMenu";
 import { KpiCard } from "@/components/KpiCard";
 import type { StoplightResult } from "@/lib/benchmarks";
 import {
@@ -33,6 +34,7 @@ type KpiCardWithPeriodProps = {
   benchmarkLabel?: string | null;
   campusLabel?: string | null;
   budgetPaceGauge?: BudgetPaceGaugeProps | null;
+  benchmarkEdit?: CardBenchmarkEdit | null;
 };
 
 export function KpiCardWithPeriod({
@@ -43,6 +45,7 @@ export function KpiCardWithPeriod({
   benchmarkLabel,
   campusLabel,
   budgetPaceGauge,
+  benchmarkEdit,
 }: KpiCardWithPeriodProps) {
   const canSelectPeriod = supportsCardPeriodSelect(metric.key);
   const [period, setPeriod] = useState<CardPeriodRange>(
@@ -99,6 +102,7 @@ export function KpiCardWithPeriod({
       subtitle={subtitle}
       headerAction={headerAction}
       budgetPaceGauge={budgetPaceGauge}
+      benchmarkEdit={benchmarkEdit}
     />
   );
 }

@@ -1,7 +1,9 @@
 import { GivingBudgetProgressCard } from "@/components/GivingBudgetProgressCard";
+import { LastWeekKidsTotalCard } from "@/components/LastWeekKidsTotalCard";
 import { BaptismsPanel } from "@/components/BaptismsPanel";
 import { FirstTimeGuestsPanel } from "@/components/FirstTimeGuestsPanel";
 import { KpiCardWithPeriod } from "@/components/KpiCardWithPeriod";
+import type { CardBenchmarkEdit } from "@/components/CardBenchmarkMenu";
 import { BenchmarkComparisonTable } from "@/components/BenchmarkComparisonTable";
 import { ComparisonPanel } from "@/components/ComparisonPanel";
 import { CampusCompareChart, GivingMonthlyChart, GivingVsExpensesChart, KidsCalendarYearTrendChart, TrendChart } from "@/components/Charts";
@@ -35,6 +37,7 @@ import { getCurrentFiscalYear } from "@/lib/periods";
 import {
   benchmarkTargetsForSection,
   buildMetricLayoutGroups,
+  defaultMinistryAreaForMetric,
   sectionShowsAttendanceTrend,
   sectionShowsBaptismsPanel,
   sectionShowsFirstTimeGuestsPanel,
@@ -56,6 +59,7 @@ type DashboardSectionProps = {
   canViewFinancial: boolean;
   fullCampusAccess?: boolean;
   churchWideAccess?: boolean;
+  allowBenchmarkEdit?: boolean;
 };
 
 function getTarget(
@@ -87,6 +91,7 @@ export async function DashboardSection({
   canViewFinancial,
   fullCampusAccess = true,
   churchWideAccess = true,
+  allowBenchmarkEdit = false,
 }: DashboardSectionProps) {
   const supabase = await createClient();
 
@@ -134,7 +139,8 @@ export async function DashboardSection({
     sectionShowsAttendanceTrend(section) && fullCampusAccess;
   const showKidsAttendanceCharts = sectionShowsKidsAttendanceCharts(section);
   const showLastWeekKidsCampusChart =
-    showKidsAttendanceCharts && fullCampusAccess;
+    showKidsAttendanceCharts && fullCampusAccess && section !== "next-gen";
+  const showNextGenKidsWeek = section === "next-gen";
   const showKidsCalendarYearChart = sectionShowsKidsCalendarYearChart(section);
   const showGivingTrend = sectionShowsGivingTrend(section) && canViewFinancial;
   const showGivingByCampusChart = showGivingTrend && fullCampusAccess;
@@ -167,7 +173,7 @@ export async function DashboardSection({
     showKidsCalendarYearChart
       ? getKidsAttendanceCalendarYearTrend(supabase, cardCampusId)
       : Promise.resolve([]),
-    showLastWeekKidsCampusChart
+    showLastWeekKidsCampusChart || showNextGenKidsWeek
       ? getLastWeekKidsAttendanceByCampus(supabase)
       : Promise.resolve(null),
   ]);
@@ -195,6 +201,31 @@ export async function DashboardSection({
         { month: "long", day: "numeric", year: "numeric" }
       )
     : null;
+  const allowedCampusSlugs = new Set(campuses.map((campus) => campus.slug));
+  const nextGenKidsWeekRows = (lastWeekKidsAttendance?.campuses ?? []).filter(
+    (row) => allowedCampusSlugs.has(row.slug)
+  );
+  const selectedKidsCampus = cardCampusId
+    ? campuses.find((campus) => campus.id === cardCampusId) ?? null
+    : null;
+  const nextGenKidsWeekForView = selectedKidsCampus
+    ? nextGenKidsWeekRows.filter((row) => row.slug === selectedKidsCampus.slug)
+    : nextGenKidsWeekRows;
+  const showNextGenKidsBreakdown =
+    showNextGenKidsWeek &&
+    compareMode === "off" &&
+    !cardCampusId &&
+    nextGenKidsWeekForView.length > 1;
+  const nextGenKidsWeekTotal = nextGenKidsWeekForView.reduce(
+    (sum, row) => sum + row.lastSunday,
+    0
+  );
+  const nextGenKidsWeekSubtitle = [
+    selectedKidsCampus?.name ?? (showNextGenKidsBreakdown ? "Church-wide" : null),
+    lastWeekKidsServiceLabel ? `Sunday, ${lastWeekKidsServiceLabel}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   const showGivingBudgetProgress = showGivingTrend;
 
@@ -276,6 +307,37 @@ export async function DashboardSection({
 
     let budgetPaceGauge = null;
 
+    const exactBenchmark =
+      allBenchmarkTargets.find(
+        (target) =>
+          target.metric_id === metric.id &&
+          (target.campus_id ?? null) === cardCampusId
+      ) ?? null;
+    const benchmarkEdit: CardBenchmarkEdit | null = allowBenchmarkEdit
+      ? {
+          metricId: metric.id,
+          metricLabel: metric.label,
+          metricUnit: metric.unit,
+          campusId: cardCampusId,
+          campusName: cardCampusId
+            ? (campuses.find((campus) => campus.id === cardCampusId)?.name ??
+              "Campus")
+            : "Church-wide",
+          fiscalYear: exactBenchmark?.fiscal_year ?? TARGET_FISCAL_YEAR,
+          ministryArea:
+            exactBenchmark?.ministry_area ??
+            defaultMinistryAreaForMetric(metric.key),
+          benchmark: exactBenchmark
+            ? {
+                id: exactBenchmark.id,
+                targetValue: exactBenchmark.target_value,
+                stretchValue: exactBenchmark.stretch_value,
+                label: exactBenchmark.label,
+              }
+            : null,
+        }
+      : null;
+
     return (
       <KpiCardWithPeriod
         key={metric.id}
@@ -291,6 +353,31 @@ export async function DashboardSection({
         benchmarkLabel={benchmarkRow?.label}
         campusLabel={subtitleCampus}
         budgetPaceGauge={budgetPaceGauge}
+        benchmarkEdit={benchmarkEdit}
+      />
+    );
+  }
+
+  function renderLastWeekKidsChart(
+    rows: NonNullable<typeof lastWeekKidsAttendance>["campuses"]
+  ) {
+    if (!lastWeekKidsAttendance || rows.length === 0) return null;
+
+    return (
+      <CampusCompareChart
+        data={rows.map((campus) => ({
+          campus: campus.name,
+          value: campus.lastSunday,
+          comparison: campus.lastMonthAvg,
+        }))}
+        title="Last week kids attendance by campus"
+        valueLabel="Last Sunday"
+        comparisonLabel={`${lastWeekKidsAttendance.lastMonthLabel} avg`}
+        subtitle={
+          lastWeekKidsServiceLabel
+            ? `Sunday, ${lastWeekKidsServiceLabel} vs ${lastWeekKidsAttendance.lastMonthLabel} average · Sunday Attendance sheet`
+            : undefined
+        }
       />
     );
   }
@@ -306,6 +393,31 @@ export async function DashboardSection({
         campuses={campuses}
         campusId={campusId}
       />
+
+      {showNextGenKidsWeek &&
+        compareMode === "off" &&
+        nextGenKidsWeekForView.length > 0 && (
+          <div
+            className={`sfdc-grid sfdc-grid--2${
+              showNextGenKidsBreakdown ? "" : " sfdc-grid--single"
+            }`}
+          >
+            {showNextGenKidsBreakdown &&
+              renderLastWeekKidsChart(nextGenKidsWeekForView)}
+            <LastWeekKidsTotalCard
+              total={nextGenKidsWeekTotal}
+              subtitle={nextGenKidsWeekSubtitle}
+              campuses={
+                showNextGenKidsBreakdown
+                  ? nextGenKidsWeekForView.map((row) => ({
+                      name: row.name,
+                      value: row.lastSunday,
+                    }))
+                  : null
+              }
+            />
+          </div>
+        )}
 
       {(showBaptismsPanel || showFirstTimeGuestsPanel) && (
         <div className="space-y-6">
@@ -437,25 +549,9 @@ export async function DashboardSection({
               subtitle={kidsAttendanceTrendSubtitle}
             />
           )}
-          {showKidsAttendanceCharts &&
+          {showLastWeekKidsCampusChart &&
             lastWeekKidsAttendance &&
-            lastWeekKidsAttendance.campuses.length > 0 && (
-              <CampusCompareChart
-                data={lastWeekKidsAttendance.campuses.map((campus) => ({
-                  campus: campus.name,
-                  value: campus.lastSunday,
-                  comparison: campus.lastMonthAvg,
-                }))}
-                title="Last week kids attendance by campus"
-                valueLabel="Last Sunday"
-                comparisonLabel={`${lastWeekKidsAttendance.lastMonthLabel} avg`}
-                subtitle={
-                  lastWeekKidsServiceLabel
-                    ? `Sunday, ${lastWeekKidsServiceLabel} vs ${lastWeekKidsAttendance.lastMonthLabel} average · Sunday Attendance sheet`
-                    : undefined
-                }
-              />
-            )}
+            renderLastWeekKidsChart(lastWeekKidsAttendance.campuses)}
         </div>
       )}
 

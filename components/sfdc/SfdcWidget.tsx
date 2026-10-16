@@ -1,4 +1,8 @@
 import type { ReactNode } from "react";
+import {
+  CardBenchmarkMenu,
+  type CardBenchmarkEdit,
+} from "@/components/CardBenchmarkMenu";
 
 type SfdcWidgetProps = {
   title: string;
@@ -9,6 +13,7 @@ type SfdcWidgetProps = {
   className?: string;
   headerAction?: ReactNode;
   placeholder?: boolean;
+  benchmarkEdit?: CardBenchmarkEdit | null;
 };
 
 export function SfdcWidget({
@@ -20,6 +25,7 @@ export function SfdcWidget({
   className = "",
   headerAction,
   placeholder = false,
+  benchmarkEdit = null,
 }: SfdcWidgetProps) {
   return (
     <article
@@ -27,22 +33,13 @@ export function SfdcWidget({
     >
       <header className="sfdc-widget__header">
         <h3 className="sfdc-widget__title">{title}</h3>
-        {headerAction ?? (
-          <button
-            type="button"
-            className="sfdc-widget__expand"
-            aria-label={`Expand ${title}`}
-            tabIndex={-1}
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
-              <path
-                d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-              />
-            </svg>
-          </button>
+        {(headerAction || benchmarkEdit) && (
+          <div className="sfdc-widget__actions">
+            {headerAction}
+            {benchmarkEdit && (
+              <CardBenchmarkMenu title={title} edit={benchmarkEdit} />
+            )}
+          </div>
         )}
       </header>
       <div className="sfdc-widget__body">{children}</div>

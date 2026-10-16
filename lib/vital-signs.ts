@@ -18,11 +18,18 @@ import type { VolunteerCampusSlug } from "./google-sheets-volunteer-matrix";
 import type { Campus } from "./types";
 import { DEFAULT_FISCAL_YEAR } from "./types";
 
+export type VitalSignPriorMonth = {
+  label: string;
+  value: number;
+  difference: number;
+};
+
 export type VitalSignReading = {
   value: number | null;
   subtitle?: string;
   hasData: boolean;
   displayValue?: string;
+  priorMonth?: VitalSignPriorMonth | null;
 };
 
 export type CampusAttendanceReading = {
@@ -96,6 +103,34 @@ function priorYearSameMonth(periodStart: string): string {
   const year = date.getFullYear() - 1;
   const month = String(date.getMonth() + 1).padStart(2, "0");
   return `${year}-${month}-01`;
+}
+
+function previousCalendarMonth(periodStart: string): string {
+  const date = new Date(`${periodStart}T12:00:00`);
+  date.setMonth(date.getMonth() - 1);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}-01`;
+}
+
+function formatShortMonthLabel(periodStart: string): string {
+  return new Date(`${periodStart}T12:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function priorMonthComparison(
+  current: number | null,
+  prior: number | null,
+  priorLabel: string
+): VitalSignPriorMonth | null {
+  if (current == null || prior == null) return null;
+  return {
+    label: priorLabel,
+    value: prior,
+    difference: current - prior,
+  };
 }
 
 function formatYearOverYearChange(current: number, prior: number): string | null {
@@ -376,8 +411,12 @@ export async function getVitalSignsData(
   const targetMonth = getPreviousCalendarMonthStart();
   const latestMonthLabel = formatMonthLabel(targetMonth);
 
+  const previousMonth = previousCalendarMonth(targetMonth);
+  const previousMonthLabel = formatShortMonthLabel(previousMonth);
+
   let sheetMonth: MonthlyAttendanceAggregate | undefined;
   let priorSheetMonth: MonthlyAttendanceAggregate | undefined;
+  let previousSheetMonth: MonthlyAttendanceAggregate | undefined;
   try {
     const currentYear = new Date().getFullYear();
     const sundays = await fetchParsedAttendanceYears([
@@ -391,6 +430,7 @@ export async function getVitalSignsData(
       );
       sheetMonth = sheetMonthlyByPeriod.get(targetMonth);
       priorSheetMonth = sheetMonthlyByPeriod.get(priorYearSameMonth(targetMonth));
+      previousSheetMonth = sheetMonthlyByPeriod.get(previousMonth);
     }
   } catch {
     // Fall back to synced monthly snapshots below.
@@ -407,6 +447,13 @@ export async function getVitalSignsData(
   );
   const churchMonthlyAttendance = churchAttendance.value;
   const churchMonthlyFromSheets = churchAttendance.fromSheets;
+  const previousChurchAttendance = churchAttendanceValue(
+    previousMonth,
+    previousSheetMonth,
+    attendanceMonthly,
+    null,
+    null
+  ).value;
 
   const churchAdults = churchAdultsValue(
     targetMonth,
@@ -425,6 +472,21 @@ export async function getVitalSignsData(
   const churchMonthlyKidsPct =
     churchMonthlyKids != null && churchMonthlyAdults != null
       ? kidsSharePct(churchMonthlyKids, churchMonthlyAdults)
+      : null;
+
+  const previousChurchKids = churchKidsValue(
+    previousMonth,
+    previousSheetMonth,
+    kidsMonthly
+  ).value;
+  const previousChurchAdults = churchAdultsValue(
+    previousMonth,
+    previousSheetMonth,
+    adultsMonthly
+  ).value;
+  const previousChurchKidsPct =
+    previousChurchKids != null && previousChurchAdults != null
+      ? kidsSharePct(previousChurchKids, previousChurchAdults)
       : null;
 
   const churchFyAttendance = annualValue(attendanceAnnual, null);
@@ -486,15 +548,29 @@ export async function getVitalSignsData(
         slug
       );
       const fyValue = annualValue(attendanceAnnual, campus.id);
+      const previousAttendance = churchAttendanceValue(
+        previousMonth,
+        previousSheetMonth,
+        attendanceMonthly,
+        campus.id,
+        slug
+      ).value;
 
       return {
         campusId: campus.id,
         campusName: campus.name,
-        monthly: reading(
-          monthlyAttendance.value,
-          monthlyAttendance.value != null && monthlyAttendance.fromSheets,
-          latestMonthLabel
-        ),
+        monthly: {
+          ...reading(
+            monthlyAttendance.value,
+            monthlyAttendance.value != null && monthlyAttendance.fromSheets,
+            latestMonthLabel
+          ),
+          priorMonth: priorMonthComparison(
+            monthlyAttendance.value,
+            previousAttendance,
+            previousMonthLabel
+          ),
+        },
         fiscalYear: reading(
           fyValue.value,
           fyValue.value != null && fyValue.fromSheets,
@@ -557,24 +633,57 @@ export async function getVitalSignsData(
         ? campusKidsPct(priorKids, priorAttendance)
         : null;
 
+    const previousKids = campusKidsValue(
+      previousMonth,
+      previousSheetMonth,
+      kidsMonthly,
+      campus.id,
+      slug
+    ).value;
+    const previousAttendance = churchAttendanceValue(
+      previousMonth,
+      previousSheetMonth,
+      attendanceMonthly,
+      campus.id,
+      slug
+    ).value;
+    const previousPct =
+      previousKids != null && previousAttendance != null
+        ? campusKidsPct(previousKids, previousAttendance)
+        : null;
+
     return {
       campusId: campus.id,
       campusName: campus.name,
-      monthly: reading(
-        monthlyKids.value,
-        monthlyKids.value != null && hasKidsData,
-        latestMonthLabel
-      ),
+      monthly: {
+        ...reading(
+          monthlyKids.value,
+          monthlyKids.value != null && hasKidsData,
+          latestMonthLabel
+        ),
+        priorMonth: priorMonthComparison(
+          monthlyKids.value,
+          previousKids,
+          previousMonthLabel
+        ),
+      },
       fiscalYear: reading(
         fyKids.value,
         fyKids.value != null && hasKidsData,
         DEFAULT_FISCAL_YEAR
       ),
-      monthlyPct: reading(
-        monthlyPct,
-        monthlyPct != null && hasKidsData,
-        latestMonthLabel
-      ),
+      monthlyPct: {
+        ...reading(
+          monthlyPct,
+          monthlyPct != null && hasKidsData,
+          latestMonthLabel
+        ),
+        priorMonth: priorMonthComparison(
+          monthlyPct,
+          previousPct,
+          previousMonthLabel
+        ),
+      },
       fiscalYearPct: reading(
         fyPct,
         fyPct != null && hasKidsData,
@@ -650,11 +759,18 @@ export async function getVitalSignsData(
     fiscalYearLabel: DEFAULT_FISCAL_YEAR,
     attendance: {
       churchWide: {
-        monthly: reading(
-          churchMonthlyAttendance,
-          churchMonthlyAttendance != null && churchMonthlyFromSheets,
-          latestMonthLabel
-        ),
+        monthly: {
+          ...reading(
+            churchMonthlyAttendance,
+            churchMonthlyAttendance != null && churchMonthlyFromSheets,
+            latestMonthLabel
+          ),
+          priorMonth: priorMonthComparison(
+            churchMonthlyAttendance,
+            previousChurchAttendance,
+            previousMonthLabel
+          ),
+        },
         fiscalYear: reading(
           churchFyAttendance.value,
           churchFyAttendance.value != null && churchFyAttendance.fromSheets,
@@ -665,21 +781,35 @@ export async function getVitalSignsData(
     },
     kids: {
       churchWide: {
-        monthly: reading(
-          churchMonthlyKids,
-          churchMonthlyKidsHasData && churchKidsFromSheets,
-          latestMonthLabel
-        ),
+        monthly: {
+          ...reading(
+            churchMonthlyKids,
+            churchMonthlyKidsHasData && churchKidsFromSheets,
+            latestMonthLabel
+          ),
+          priorMonth: priorMonthComparison(
+            churchMonthlyKids,
+            previousChurchKids,
+            previousMonthLabel
+          ),
+        },
         fiscalYear: reading(
           churchFyKids,
           churchFyAttendance.fromSheets,
           `Avg weekly · ${DEFAULT_FISCAL_YEAR}`
         ),
-        monthlyPct: reading(
-          churchMonthlyKidsPct,
-          churchMonthlyKidsPct != null && churchKidsFromSheets,
-          latestMonthLabel
-        ),
+        monthlyPct: {
+          ...reading(
+            churchMonthlyKidsPct,
+            churchMonthlyKidsPct != null && churchKidsFromSheets,
+            latestMonthLabel
+          ),
+          priorMonth: priorMonthComparison(
+            churchMonthlyKidsPct,
+            previousChurchKidsPct,
+            previousMonthLabel
+          ),
+        },
         fiscalYearPct: reading(
           churchFyKidsPct,
           churchFyKidsPct != null && churchFyAttendance.fromSheets,

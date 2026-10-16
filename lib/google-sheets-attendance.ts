@@ -454,9 +454,9 @@ const TOTAL_ATTENDANCE_LAYOUTS: Record<
   2026: {
     online: [6, 7, 8],
     campusTotals: {
-      "mount-pleasant": 14,
-      alma: 19,
-      "st-johns": 24,
+      "mount-pleasant": 15,
+      alma: 21,
+      "st-johns": 26,
     },
   },
 };

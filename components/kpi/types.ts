@@ -1,3 +1,4 @@
+import type { CardBenchmarkEdit } from "@/components/CardBenchmarkMenu";
 import type { StoplightResult, StoplightStatus } from "@/lib/benchmarks";
 import type { Metric } from "@/lib/types";
 
@@ -18,6 +19,7 @@ export type KpiCardRenderProps = {
   subtitle?: string;
   headerAction?: React.ReactNode;
   budgetPaceGauge?: BudgetPaceGaugeProps | null;
+  benchmarkEdit?: CardBenchmarkEdit | null;
 };
 
 export type KpiCardStyleId =
