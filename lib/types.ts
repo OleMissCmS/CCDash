@@ -55,7 +55,6 @@ export type BenchmarkTarget = {
 };
 
 export type MonthlyExpensesScope =
-  | "all"
   | "central"
   | "mount-pleasant"
   | "alma"
@@ -80,7 +79,7 @@ export type UserProfile = {
   can_view_weekend_reach: boolean;
   can_view_operations: boolean;
   can_view_monthly_expenses: boolean;
-  monthly_expenses_scope: MonthlyExpensesScope;
+  monthly_expenses_scope: MonthlyExpensesScope[];
   can_view_volunteer_matrix: boolean;
   campus_access: CampusAccessOption[];
   can_edit_benchmarks: boolean;

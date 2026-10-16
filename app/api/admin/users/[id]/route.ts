@@ -3,7 +3,9 @@ import { requireUserManager } from "@/lib/admin-auth";
 import {
   ADMIN_PERMISSIONS,
   ALL_CAMPUS_ACCESS,
+  ALL_EXPENSE_SCOPES,
   normalizeCampusAccess,
+  normalizeMonthlyExpensesScope,
 } from "@/lib/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { UserProfile } from "@/lib/types";
@@ -53,7 +55,7 @@ export async function PATCH(
       can_access_chms: true,
       can_manage_chms_processes: true,
       can_view_monthly_expenses: true,
-      monthly_expenses_scope: "all",
+      monthly_expenses_scope: ALL_EXPENSE_SCOPES,
     });
   } else {
     const permissions = body.permissions ?? {};
@@ -67,6 +69,19 @@ export async function PATCH(
         { status: 400 }
       );
     }
+    const canViewMonthlyExpenses =
+      permissions.can_view_monthly_expenses ??
+      permissions.can_view_operations ??
+      false;
+    const expenseScope = normalizeMonthlyExpensesScope(
+      permissions.monthly_expenses_scope ?? ALL_EXPENSE_SCOPES
+    );
+    if (canViewMonthlyExpenses && expenseScope.length === 0) {
+      return NextResponse.json(
+        { error: "Select at least one expense campus" },
+        { status: 400 }
+      );
+    }
     Object.assign(updates, {
       role: "staff",
       can_view_overview: permissions.can_view_overview ?? true,
@@ -75,11 +90,8 @@ export async function PATCH(
       can_view_next_gen: permissions.can_view_next_gen ?? true,
       can_view_weekend_reach: permissions.can_view_weekend_reach ?? true,
       can_view_operations: permissions.can_view_operations ?? false,
-      can_view_monthly_expenses:
-        permissions.can_view_monthly_expenses ??
-        permissions.can_view_operations ??
-        false,
-      monthly_expenses_scope: permissions.monthly_expenses_scope ?? "all",
+      can_view_monthly_expenses: canViewMonthlyExpenses,
+      monthly_expenses_scope: expenseScope,
       can_view_volunteer_matrix: permissions.can_view_volunteer_matrix ?? true,
       campus_access: campusAccess,
       can_edit_benchmarks: permissions.can_edit_benchmarks ?? false,

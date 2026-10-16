@@ -17,7 +17,7 @@ export type UserPermissions = {
   can_view_weekend_reach: boolean;
   can_view_operations: boolean;
   can_view_monthly_expenses: boolean;
-  monthly_expenses_scope: MonthlyExpensesScope;
+  monthly_expenses_scope: MonthlyExpensesScope[];
   can_view_volunteer_matrix: boolean;
   campus_access: CampusAccessOption[];
   can_edit_benchmarks: boolean;
@@ -36,6 +36,25 @@ export const CAMPUS_ACCESS_OPTIONS: {
 export const ALL_CAMPUS_ACCESS: CampusAccessOption[] = CAMPUS_ACCESS_OPTIONS.map(
   (option) => option.value
 );
+
+export const EXPENSE_SCOPE_OPTIONS: {
+  value: MonthlyExpensesScope;
+  label: string;
+}[] = EXPENSE_CAMPUSES.map((campus) => ({
+  value: campus.slug,
+  label: campus.label,
+}));
+
+export const ALL_EXPENSE_SCOPES: MonthlyExpensesScope[] =
+  EXPENSE_SCOPE_OPTIONS.map((option) => option.value);
+
+export function normalizeMonthlyExpensesScope(
+  raw: unknown
+): MonthlyExpensesScope[] {
+  if (raw === "all") return [...ALL_EXPENSE_SCOPES];
+  const values = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
+  return ALL_EXPENSE_SCOPES.filter((option) => values.includes(option));
+}
 
 const CAMPUS_ACCESS_SLUGS: CampusAccessSlug[] = [
   "mount-pleasant",
@@ -86,7 +105,7 @@ export const DEFAULT_STAFF_PERMISSIONS: UserPermissions = {
   can_view_weekend_reach: true,
   can_view_operations: false,
   can_view_monthly_expenses: false,
-  monthly_expenses_scope: "all",
+  monthly_expenses_scope: ALL_EXPENSE_SCOPES,
   can_view_volunteer_matrix: true,
   campus_access: ALL_CAMPUS_ACCESS,
   can_edit_benchmarks: false,
@@ -99,7 +118,7 @@ export const ADMIN_PERMISSIONS: UserPermissions = {
   can_view_weekend_reach: true,
   can_view_operations: true,
   can_view_monthly_expenses: true,
-  monthly_expenses_scope: "all",
+  monthly_expenses_scope: ALL_EXPENSE_SCOPES,
   can_view_volunteer_matrix: true,
   campus_access: ALL_CAMPUS_ACCESS,
   can_edit_benchmarks: true,
@@ -153,22 +172,14 @@ export function canViewVolunteerMatrix(profile: UserProfile): boolean {
   );
 }
 
-export function monthlyExpensesScope(
-  profile: UserProfile
-): MonthlyExpensesScope {
-  if (isAdmin(profile)) return "all";
-  return profile.monthly_expenses_scope ?? "all";
-}
-
 export function allowedExpenseCampuses(
   profile: UserProfile
 ): ExpenseCampusSlug[] {
-  const scope = monthlyExpensesScope(profile);
-  const byExpenseScope: ExpenseCampusSlug[] =
-    scope === "all" ? EXPENSE_CAMPUSES.map((campus) => campus.slug) : [scope];
+  if (isAdmin(profile)) return [...ALL_EXPENSE_SCOPES];
 
+  const selected = normalizeMonthlyExpensesScope(profile.monthly_expenses_scope);
   const campuses = campusScope(profile);
-  return byExpenseScope.filter((slug) =>
+  return selected.filter((slug) =>
     slug === "central"
       ? campuses.churchWide
       : campuses.campusSlugs.includes(slug)
@@ -211,7 +222,9 @@ export function permissionsFromProfile(
     can_view_weekend_reach: profile.can_view_weekend_reach,
     can_view_operations: profile.can_view_operations,
     can_view_monthly_expenses: profile.can_view_monthly_expenses,
-    monthly_expenses_scope: profile.monthly_expenses_scope,
+    monthly_expenses_scope: normalizeMonthlyExpensesScope(
+      profile.monthly_expenses_scope
+    ),
     can_view_volunteer_matrix: profile.can_view_volunteer_matrix,
     campus_access: [...profile.campus_access],
     can_edit_benchmarks: profile.can_edit_benchmarks,
@@ -240,8 +253,9 @@ export function normalizeUserProfile(
       row.can_view_monthly_expenses ??
       row.can_view_operations ??
       defaults.can_view_monthly_expenses,
-    monthly_expenses_scope:
-      row.monthly_expenses_scope ?? defaults.monthly_expenses_scope,
+    monthly_expenses_scope: normalizeMonthlyExpensesScope(
+      row.monthly_expenses_scope ?? defaults.monthly_expenses_scope
+    ),
     can_view_volunteer_matrix:
       row.can_view_volunteer_matrix ?? defaults.can_view_volunteer_matrix,
     campus_access:

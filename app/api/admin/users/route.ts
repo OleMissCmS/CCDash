@@ -3,7 +3,9 @@ import { requireUserManager } from "@/lib/admin-auth";
 import {
   ADMIN_PERMISSIONS,
   ALL_CAMPUS_ACCESS,
+  ALL_EXPENSE_SCOPES,
   normalizeCampusAccess,
+  normalizeMonthlyExpensesScope,
   normalizeUserProfile,
 } from "@/lib/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -29,7 +31,7 @@ function buildPermissionPayload(
       can_access_chms: true,
       can_manage_chms_processes: true,
       can_view_monthly_expenses: true,
-      monthly_expenses_scope: "all",
+      monthly_expenses_scope: ALL_EXPENSE_SCOPES,
     };
   }
 
@@ -44,7 +46,9 @@ function buildPermissionPayload(
       permissions?.can_view_monthly_expenses ??
       permissions?.can_view_operations ??
       false,
-    monthly_expenses_scope: permissions?.monthly_expenses_scope ?? "all",
+    monthly_expenses_scope: normalizeMonthlyExpensesScope(
+      permissions?.monthly_expenses_scope ?? ALL_EXPENSE_SCOPES
+    ),
     can_view_volunteer_matrix: permissions?.can_view_volunteer_matrix ?? true,
     campus_access:
       permissions?.campus_access === undefined
@@ -101,7 +105,8 @@ export async function GET() {
           existing?.can_view_monthly_expenses ??
           existing?.can_view_operations ??
           false,
-        monthly_expenses_scope: existing?.monthly_expenses_scope ?? "all",
+        monthly_expenses_scope:
+          existing?.monthly_expenses_scope ?? ALL_EXPENSE_SCOPES,
         can_view_volunteer_matrix: existing?.can_view_volunteer_matrix ?? true,
         campus_access: existing?.campus_access ?? ALL_CAMPUS_ACCESS,
         can_edit_benchmarks: existing?.can_edit_benchmarks ?? false,
@@ -155,6 +160,17 @@ export async function POST(request: Request) {
   if (permissionPayload.campus_access.length === 0) {
     return NextResponse.json(
       { error: "Select at least one campus access option" },
+      { status: 400 }
+    );
+  }
+
+  if (
+    role !== "admin" &&
+    permissionPayload.can_view_monthly_expenses &&
+    permissionPayload.monthly_expenses_scope.length === 0
+  ) {
+    return NextResponse.json(
+      { error: "Select at least one expense campus" },
       { status: 400 }
     );
   }

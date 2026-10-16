@@ -1,10 +1,11 @@
 "use client";
 
 import { VIEW_SECTION_LABELS, VIEW_SECTIONS } from "@/lib/sections";
-import { EXPENSE_CAMPUSES } from "@/lib/expense-accounts";
 import {
   ALL_CAMPUS_ACCESS,
+  ALL_EXPENSE_SCOPES,
   CAMPUS_ACCESS_OPTIONS,
+  EXPENSE_SCOPE_OPTIONS,
   type UserPermissions,
 } from "@/lib/permissions";
 import type { CampusAccessOption, MonthlyExpensesScope } from "@/lib/types";
@@ -25,11 +26,27 @@ export function PermissionCheckboxes({
   isAdmin = false,
 }: PermissionCheckboxesProps) {
   function togglePage(key: keyof UserPermissions, checked: boolean) {
+    if (key === "can_view_monthly_expenses" && checked && value.monthly_expenses_scope.length === 0) {
+      onChange({
+        ...value,
+        can_view_monthly_expenses: true,
+        monthly_expenses_scope: [...ALL_EXPENSE_SCOPES],
+      });
+      return;
+    }
     onChange({ ...value, [key]: checked });
   }
 
-  function setExpensesScope(scope: MonthlyExpensesScope) {
-    onChange({ ...value, monthly_expenses_scope: scope });
+  function toggleExpenseScope(option: MonthlyExpensesScope, checked: boolean) {
+    const next = checked
+      ? [...value.monthly_expenses_scope, option]
+      : value.monthly_expenses_scope.filter((item) => item !== option);
+    onChange({
+      ...value,
+      monthly_expenses_scope: ALL_EXPENSE_SCOPES.filter((item) =>
+        next.includes(item)
+      ),
+    });
   }
 
   if (isAdmin) {
@@ -160,30 +177,37 @@ export function PermissionCheckboxes({
         </label>
 
         {value.can_view_monthly_expenses && (
-          <label className="form-control mt-2">
-            <span className="label-text">Expense access scope</span>
-            <select
-              className="select select-bordered select-sm mt-1"
-              value={value.monthly_expenses_scope}
-              disabled={disabled}
-              onChange={(e) =>
-                setExpensesScope(e.target.value as MonthlyExpensesScope)
-              }
-            >
-              <option value="all">All campuses (executive / central)</option>
-              {EXPENSE_CAMPUSES.map((campus) => (
-                <option key={campus.slug} value={campus.slug}>
-                  {campus.label} only
-                </option>
-              ))}
-            </select>
-            {!hasFullCampusAccess && (
-              <span className="text-xs text-base-content/60 mt-1">
-                Also limited by campus access: Central requires Church-wide, and
-                each campus requires its own box.
-              </span>
+          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {EXPENSE_SCOPE_OPTIONS.map((option) => (
+              <label
+                key={option.value}
+                className="label cursor-pointer justify-start gap-3 py-1"
+              >
+                <input
+                  type="checkbox"
+                  className="checkbox checkbox-sm"
+                  checked={value.monthly_expenses_scope.includes(option.value)}
+                  disabled={disabled}
+                  onChange={(e) =>
+                    toggleExpenseScope(option.value, e.target.checked)
+                  }
+                />
+                <span className="label-text">{option.label}</span>
+              </label>
+            ))}
+            {value.monthly_expenses_scope.length === 0 ? (
+              <p className="text-xs text-error sm:col-span-2">
+                Select at least one expense campus.
+              </p>
+            ) : (
+              !hasFullCampusAccess && (
+                <p className="text-xs text-base-content/60 sm:col-span-2">
+                  Central also requires Church-wide campus access, and each
+                  campus requires its own campus access box.
+                </p>
+              )
             )}
-          </label>
+          </div>
         )}
       </div>
 

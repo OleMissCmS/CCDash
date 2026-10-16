@@ -8,6 +8,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import {
   ALL_CAMPUS_ACCESS,
+  ALL_EXPENSE_SCOPES,
   canManageUsers,
   normalizeUserProfile,
 } from "@/lib/permissions";
@@ -45,7 +46,8 @@ async function getManagedUsers(): Promise<ManagedUser[]> {
         can_view_weekend_reach: profile?.can_view_weekend_reach ?? true,
         can_view_operations: profile?.can_view_operations ?? false,
         can_view_monthly_expenses: profile?.can_view_monthly_expenses ?? false,
-        monthly_expenses_scope: profile?.monthly_expenses_scope ?? "all",
+        monthly_expenses_scope:
+          profile?.monthly_expenses_scope ?? ALL_EXPENSE_SCOPES,
         can_view_volunteer_matrix: profile?.can_view_volunteer_matrix ?? true,
         campus_access: profile?.campus_access ?? ALL_CAMPUS_ACCESS,
         can_edit_benchmarks: profile?.can_edit_benchmarks ?? false,

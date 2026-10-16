@@ -28,6 +28,14 @@ export function UserCreateForm() {
       setError("Select at least one campus access option.");
       return;
     }
+    if (
+      role === "staff" &&
+      permissions.can_view_monthly_expenses &&
+      permissions.monthly_expenses_scope.length === 0
+    ) {
+      setError("Select at least one expense campus.");
+      return;
+    }
     setLoading(true);
 
     const response = await fetch("/api/admin/users", {
