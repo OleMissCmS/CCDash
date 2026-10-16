@@ -2,18 +2,48 @@ const DEFAULT_SHEET_ID = "1vpr_ahKFjQIiWCMQ04mkH7UZMhfEXcwdj7hWlVT7QCo";
 
 /** Column D — Total In-Person Adults (church-wide adult worship). */
 const IN_PERSON_ADULTS_COL = 3;
+/** Column E — Total kids attendance (church-wide). */
+const KIDS_CHURCHWIDE_COL = 4;
+
+/** 2023 tab — church-wide kids (column AC). */
+const KIDS_CHURCHWIDE_COL_2023 = 28;
+
+type KidsSheetLayout = {
+  name: string;
+  churchTotalCol: number;
+  online: readonly [number, number, number];
+  churchKidsCol: number;
+};
+
+const KIDS_SHEET_LAYOUTS: KidsSheetLayout[] = [
+  {
+    name: "2024+",
+    churchTotalCol: 2,
+    online: [6, 7, 8],
+    churchKidsCol: KIDS_CHURCHWIDE_COL,
+  },
+  {
+    name: "2023",
+    churchTotalCol: 2,
+    online: [4, 5, 6],
+    churchKidsCol: KIDS_CHURCHWIDE_COL_2023,
+  },
+];
 
 const CAMPUS_SLUGS = ["mount-pleasant", "alma", "st-johns"] as const;
 export type AttendanceCampusSlug = (typeof CAMPUS_SLUGS)[number];
 
+type CampusSheetLayout = {
+  slug: AttendanceCampusSlug;
+  serviceCols: readonly number[];
+  kidsCol?: number;
+  totalCol: number;
+};
+
 type SheetLayout = {
   name: string;
   online: readonly [number, number, number];
-  campuses: ReadonlyArray<{
-    slug: AttendanceCampusSlug;
-    serviceCols: readonly number[];
-    totalCol: number;
-  }>;
+  campuses: ReadonlyArray<CampusSheetLayout>;
 };
 
 const SHEET_LAYOUTS: SheetLayout[] = [
@@ -23,11 +53,22 @@ const SHEET_LAYOUTS: SheetLayout[] = [
     campuses: [
       {
         slug: "mount-pleasant",
-        serviceCols: [10, 11, 12, 13, 14],
+        serviceCols: [10, 11, 12, 13],
+        kidsCol: 14,
         totalCol: 15,
       },
-      { slug: "alma", serviceCols: [17, 18, 19, 20], totalCol: 21 },
-      { slug: "st-johns", serviceCols: [23, 24, 25], totalCol: 26 },
+      {
+        slug: "alma",
+        serviceCols: [17, 18, 19],
+        kidsCol: 20,
+        totalCol: 21,
+      },
+      {
+        slug: "st-johns",
+        serviceCols: [23, 24],
+        kidsCol: 25,
+        totalCol: 26,
+      },
     ],
   },
   {
@@ -50,17 +91,26 @@ export type ParsedSundayAttendance = {
   churchTotal: number;
   /** Column D — total in-person adults (church-wide adult worship). */
   inPersonAdultsTotal: number;
+  /** Column E — total kids attendance (church-wide). */
+  churchKidsTotal: number | null;
   onlineTotal: number;
   inPersonTotal: number;
-  campuses: Record<AttendanceCampusSlug, { total: number; kids: number }>;
+  campuses: Record<AttendanceCampusSlug, { total: number; kids: number | null }>;
   layout: string;
   note?: string;
+};
+
+export type ParsedSundayTotalAttendance = {
+  date: string;
+  inPersonTotal: number;
+  campuses: Record<AttendanceCampusSlug, number>;
 };
 
 export type MonthlyAttendanceAggregate = {
   periodStart: string;
   churchTotal: number | null;
   inPersonAdultsTotal: number | null;
+  churchKidsTotal: number | null;
   inPersonTotal: number | null;
   campuses: Record<
     AttendanceCampusSlug,
@@ -130,8 +180,8 @@ export function fiscalYearForDate(date: string): string {
 
 function parseCampusBlock(
   row: string[],
-  campus: SheetLayout["campuses"][number]
-): { total: number; kids: number } | null {
+  campus: CampusSheetLayout
+): { total: number; kids: number | null } | null {
   const services = campus.serviceCols
     .map((index) => parseNumber(row[index]))
     .filter((value): value is number => value !== null);
@@ -139,10 +189,17 @@ function parseCampusBlock(
   const total = parseNumber(row[campus.totalCol]);
   if (!services.length || total === null) return null;
 
-  const kids = services[services.length - 1] ?? 0;
   const serviceSum = services.reduce((sum, value) => sum + value, 0);
+  let kids: number | null = null;
 
-  if (Math.abs(serviceSum - total) > 2) {
+  if (campus.kidsCol !== undefined) {
+    kids = parseNumber(row[campus.kidsCol]);
+    if (kids !== null) {
+      if (Math.abs(serviceSum + kids - total) > 2) return null;
+    } else if (Math.abs(serviceSum - total) > 2) {
+      return null;
+    }
+  } else if (Math.abs(serviceSum - total) > 2) {
     return null;
   }
 
@@ -156,6 +213,7 @@ export function parseSundayAttendanceRow(
 
   const churchTotal = parseNumber(row[2]);
   const inPersonAdultsTotal = parseNumber(row[IN_PERSON_ADULTS_COL]);
+  const churchKidsTotal = parseNumber(row[KIDS_CHURCHWIDE_COL]);
   if (churchTotal === null || inPersonAdultsTotal === null) return null;
 
   const note = row[0]?.trim() || undefined;
@@ -196,6 +254,7 @@ export function parseSundayAttendanceRow(
       date,
       churchTotal,
       inPersonAdultsTotal,
+      churchKidsTotal,
       onlineTotal,
       inPersonTotal,
       campuses,
@@ -280,6 +339,69 @@ export function parseAttendanceSheetRows(rows: string[][]): ParsedSundayAttendan
     .filter((row): row is ParsedSundayAttendance => row !== null);
 }
 
+export type ParsedSundayKidsAttendance = {
+  date: string;
+  churchKidsTotal: number;
+  layout: string;
+};
+
+export function parseSundayKidsAttendanceRow(
+  row: string[]
+): ParsedSundayKidsAttendance | null {
+  const date = parseSheetDate(row[1] ?? "");
+  if (!date) return null;
+
+  for (const layout of KIDS_SHEET_LAYOUTS) {
+    const churchTotal = parseNumber(row[layout.churchTotalCol]);
+    const live = parseNumber(row[layout.online[0]]);
+    const demand = parseNumber(row[layout.online[1]]);
+    const onlineTotal = parseNumber(row[layout.online[2]]);
+    const churchKidsTotal = parseNumber(row[layout.churchKidsCol]);
+
+    if (
+      churchTotal === null ||
+      live === null ||
+      demand === null ||
+      onlineTotal === null ||
+      churchKidsTotal === null ||
+      churchKidsTotal <= 0 ||
+      Math.abs(live + demand - onlineTotal) > 1
+    ) {
+      continue;
+    }
+
+    return { date, churchKidsTotal, layout: layout.name };
+  }
+
+  return null;
+}
+
+export function parseKidsAttendanceSheetRows(
+  rows: string[][]
+): ParsedSundayKidsAttendance[] {
+  return rows
+    .map((row) => parseSundayKidsAttendanceRow(row))
+    .filter((row): row is ParsedSundayKidsAttendance => row !== null);
+}
+
+export async function fetchParsedKidsAttendanceYears(
+  years: number[]
+): Promise<ParsedSundayKidsAttendance[]> {
+  const results = await Promise.all(
+    years.map(async (year) => {
+      const rows = await fetchAttendanceSheet(year);
+      return parseKidsAttendanceSheetRows(rows);
+    })
+  );
+
+  const deduped = new Map<string, ParsedSundayKidsAttendance>();
+  for (const sunday of results.flat()) {
+    deduped.set(sunday.date, sunday);
+  }
+
+  return [...deduped.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export async function fetchParsedAttendanceYears(
   years: number[]
 ): Promise<ParsedSundayAttendance[]> {
@@ -291,6 +413,109 @@ export async function fetchParsedAttendanceYears(
   );
 
   const deduped = new Map<string, ParsedSundayAttendance>();
+  for (const sunday of results.flat()) {
+    deduped.set(sunday.date, sunday);
+  }
+
+  return [...deduped.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+const TOTAL_ATTENDANCE_LAYOUTS: Record<
+  number,
+  {
+    online: readonly [number, number, number];
+    campusTotals: Record<AttendanceCampusSlug, number>;
+  }
+> = {
+  2023: {
+    online: [4, 5, 6],
+    campusTotals: {
+      "mount-pleasant": 13,
+      alma: 18,
+      "st-johns": 23,
+    },
+  },
+  2024: {
+    online: [6, 7, 8],
+    campusTotals: {
+      "mount-pleasant": 15,
+      alma: 21,
+      "st-johns": 26,
+    },
+  },
+  2025: {
+    online: [6, 7, 8],
+    campusTotals: {
+      "mount-pleasant": 15,
+      alma: 21,
+      "st-johns": 26,
+    },
+  },
+  2026: {
+    online: [6, 7, 8],
+    campusTotals: {
+      "mount-pleasant": 14,
+      alma: 19,
+      "st-johns": 24,
+    },
+  },
+};
+
+function parseSundayTotalAttendanceRow(
+  row: string[],
+  year: number
+): ParsedSundayTotalAttendance | null {
+  const layout = TOTAL_ATTENDANCE_LAYOUTS[year];
+  if (!layout) return null;
+
+  const date = parseSheetDate(row[1] ?? "");
+  const churchTotal = parseNumber(row[2]);
+  const live = parseNumber(row[layout.online[0]]);
+  const demand = parseNumber(row[layout.online[1]]);
+  const onlineTotal = parseNumber(row[layout.online[2]]);
+  if (
+    !date ||
+    churchTotal === null ||
+    live === null ||
+    demand === null ||
+    onlineTotal === null ||
+    Math.abs(live + demand - onlineTotal) > 1
+  ) {
+    return null;
+  }
+
+  const campuses = {} as ParsedSundayTotalAttendance["campuses"];
+  for (const slug of CAMPUS_SLUGS) {
+    const total = parseNumber(row[layout.campusTotals[slug]]);
+    if (total === null) return null;
+    campuses[slug] = total;
+  }
+
+  const inPersonTotal = churchTotal - onlineTotal;
+  const campusSum = Object.values(campuses).reduce(
+    (sum, total) => sum + total,
+    0
+  );
+  if (Math.abs(campusSum - inPersonTotal) > 25) return null;
+
+  return { date, inPersonTotal, campuses };
+}
+
+export async function fetchParsedTotalAttendanceYears(
+  years: number[]
+): Promise<ParsedSundayTotalAttendance[]> {
+  const results = await Promise.all(
+    years.map(async (year) => {
+      const rows = await fetchAttendanceSheet(year);
+      return rows
+        .map((row) => parseSundayTotalAttendanceRow(row, year))
+        .filter(
+          (row): row is ParsedSundayTotalAttendance => row !== null
+        );
+    })
+  );
+
+  const deduped = new Map<string, ParsedSundayTotalAttendance>();
   for (const sunday of results.flat()) {
     deduped.set(sunday.date, sunday);
   }
@@ -346,6 +571,11 @@ function buildMonthlyAggregates(
         inPersonAdultsTotal: average(
           rows.map((row) => row.inPersonAdultsTotal)
         ),
+        churchKidsTotal: average(
+          rows
+            .map((row) => row.churchKidsTotal)
+            .filter((value): value is number => value !== null)
+        ),
         inPersonTotal: average(rows.map((row) => row.inPersonTotal)),
         campuses,
         sundayCount: rows.length,
@@ -395,6 +625,11 @@ export function buildFiscalYearAggregates(
         churchTotal: average(rows.map((row) => row.churchTotal)),
         inPersonAdultsTotal: average(
           rows.map((row) => row.inPersonAdultsTotal)
+        ),
+        churchKidsTotal: average(
+          rows
+            .map((row) => row.churchKidsTotal)
+            .filter((value): value is number => value !== null)
         ),
         inPersonTotal: average(rows.map((row) => row.inPersonTotal)),
         campuses,

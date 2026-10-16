@@ -1,19 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { KpiCard } from "@/components/KpiCard";
 import type { StoplightResult } from "@/lib/benchmarks";
 import {
   defaultCardPeriod,
   showBenchmarkForCardPeriod,
   supportsCardPeriodSelect,
-  CARD_PERIOD_LABELS,
   CARD_PERIOD_RANGES,
   getCardPeriodDescription,
   getCardPeriodLabel,
   type CardPeriodRange,
 } from "@/lib/card-periods";
+import { getPreviousCalendarMonthStart } from "@/lib/periods";
 import type { Metric } from "@/lib/types";
+import type { BudgetPaceGaugeProps } from "@/components/kpi/types";
+
+function formatPreviousMonthLabel(): string {
+  const periodStart = getPreviousCalendarMonthStart();
+  return new Date(`${periodStart}T12:00:00`).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+}
 
 type KpiCardWithPeriodProps = {
   metric: Metric;
@@ -23,6 +32,7 @@ type KpiCardWithPeriodProps = {
   stoplightByPeriod?: Partial<Record<CardPeriodRange, StoplightResult | null>>;
   benchmarkLabel?: string | null;
   campusLabel?: string | null;
+  budgetPaceGauge?: BudgetPaceGaugeProps | null;
 };
 
 export function KpiCardWithPeriod({
@@ -32,6 +42,7 @@ export function KpiCardWithPeriod({
   stoplightByPeriod,
   benchmarkLabel,
   campusLabel,
+  budgetPaceGauge,
 }: KpiCardWithPeriodProps) {
   const canSelectPeriod = supportsCardPeriodSelect(metric.key);
   const [period, setPeriod] = useState<CardPeriodRange>(
@@ -54,38 +65,40 @@ export function KpiCardWithPeriod({
     subtitle = `${subtitle} · ${campusLabel}`;
   }
   if (metric.key === "giving_previous_month") {
-    subtitle = "Previous calendar month";
+    subtitle = formatPreviousMonthLabel();
+    if (campusLabel) {
+      subtitle = `${subtitle} · ${campusLabel}`;
+    }
+  }
+
+  let headerAction: ReactNode = null;
+  if (canSelectPeriod) {
+    headerAction = (
+      <select
+        className="sfdc-select text-xs max-w-[9.5rem] h-7 min-h-0 py-0"
+        value={period}
+        onChange={(event) => setPeriod(event.target.value as CardPeriodRange)}
+        aria-label={`Time period for ${metric.label}`}
+      >
+        {CARD_PERIOD_RANGES.map((option) => (
+          <option key={option} value={option}>
+            {getCardPeriodLabel(option, metric.key, metric.unit)}
+          </option>
+        ))}
+      </select>
+    );
   }
 
   return (
-    <div className="space-y-2">
-      {canSelectPeriod && (
-        <label className="flex items-center justify-end gap-2 text-xs text-base-content/60">
-          <span className="sr-only">Time period for {metric.label}</span>
-          <select
-            className="select select-bordered select-xs max-w-[10.5rem]"
-            value={period}
-            onChange={(event) =>
-              setPeriod(event.target.value as CardPeriodRange)
-            }
-            aria-label={`Time period for ${metric.label}`}
-          >
-            {CARD_PERIOD_RANGES.map((option) => (
-              <option key={option} value={option}>
-                {getCardPeriodLabel(option, metric.key, metric.unit)}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      <KpiCard
-        metric={metric}
-        value={value}
-        benchmark={showBenchmark ? benchmark : null}
-        stoplight={stoplight}
-        benchmarkLabel={showBenchmark ? benchmarkLabel : null}
-        subtitle={subtitle}
-      />
-    </div>
+    <KpiCard
+      metric={metric}
+      value={value}
+      benchmark={showBenchmark ? benchmark : null}
+      stoplight={stoplight}
+      benchmarkLabel={showBenchmark ? benchmarkLabel : null}
+      subtitle={subtitle}
+      headerAction={headerAction}
+      budgetPaceGauge={budgetPaceGauge}
+    />
   );
 }

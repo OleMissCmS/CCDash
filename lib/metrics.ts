@@ -2,8 +2,20 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildAttendanceAggregates,
   fetchParsedAttendanceYears,
+  fetchParsedKidsAttendanceYears,
+  fetchParsedTotalAttendanceYears,
   type AttendanceCampusSlug,
+  type MonthlyAttendanceAggregate,
+  type ParsedSundayAttendance,
 } from "./google-sheets-attendance";
+import {
+  CAMPUS_ORDER,
+  fetchGivingAnnualBudget,
+  fetchParsedGivingData,
+  type GivingCampusSlug,
+  type ParsedGivingMonth,
+} from "./google-sheets-giving";
+import { findBenchmark } from "./benchmarks";
 import {
   buildMetricCardPeriodValues,
   getCardPeriodBounds,
@@ -14,6 +26,9 @@ import {
   collapseMonthlyToSnapshots,
   fiscalYearForPeriod,
   getFiscalYearMonthlyBounds,
+  getCurrentFiscalYear,
+  getFiscalYearMonthsElapsed,
+  getFiscalYearYtdMonthEnd,
   getMonthlyPeriodBounds,
   getPreviousCalendarMonthStart,
   isAnnualPeriod,
@@ -25,6 +40,7 @@ import {
   sectionUsesBaptismsYearMode,
   type ViewSection,
 } from "./sections";
+import { resolveUserProfile } from "./user-profile";
 import type {
   AlertThreshold,
   BenchmarkTarget,
@@ -126,36 +142,319 @@ function mergeSnapshotSets(
 
 export async function getGivingPreviousMonthSnapshots(
   supabase: SupabaseClient,
-  campusId?: string | null
+  _campusId?: string | null
+): Promise<MetricSnapshot[]> {
+  try {
+    const sheetRows = await getGivingPreviousMonthFromSheet(supabase);
+    if (sheetRows.length > 0) return sheetRows;
+  } catch {
+    // Fall back to synced database snapshots.
+  }
+
+  return getGivingPreviousMonthFromDb(supabase);
+}
+
+function buildGivingPreviousMonthSnapshots(
+  month: ParsedGivingMonth,
+  metric: Metric,
+  campuses: Campus[]
+): MetricSnapshot[] {
+  const rows: MetricSnapshot[] = [];
+  const source = "google_sheets";
+  const campusBySlug = new Map(campuses.map((campus) => [campus.slug, campus]));
+
+  if (month.totalGiving !== null) {
+    rows.push({
+      id: `giving-prev-${month.periodStart}-church`,
+      campus_id: null,
+      metric_id: metric.id,
+      period_start: month.periodStart,
+      period_type: "monthly",
+      fiscal_year: null,
+      calendar_year: null,
+      value: month.totalGiving,
+      source,
+      metric,
+    });
+  }
+
+  for (const slug of CAMPUS_ORDER) {
+    const campusGiving = month.campuses[slug as GivingCampusSlug]?.giving;
+    const campus = campusBySlug.get(slug);
+    if (campusGiving == null || !campus) continue;
+
+    rows.push({
+      id: `giving-prev-${month.periodStart}-${slug}`,
+      campus_id: campus.id,
+      metric_id: metric.id,
+      period_start: month.periodStart,
+      period_type: "monthly",
+      fiscal_year: null,
+      calendar_year: null,
+      value: campusGiving,
+      source,
+      metric,
+      campus,
+    });
+  }
+
+  return rows;
+}
+
+async function getGivingPreviousMonthFromSheet(
+  supabase: SupabaseClient
+): Promise<MetricSnapshot[]> {
+  const [{ data: metric }, campuses, months] = await Promise.all([
+    supabase
+      .from("metrics")
+      .select("*")
+      .eq("key", "giving_previous_month")
+      .maybeSingle(),
+    getCampuses(supabase),
+    fetchParsedGivingData(),
+  ]);
+
+  if (!metric) return [];
+
+  const periodStart = getPreviousCalendarMonthStart();
+  const month = months.find((row) => row.periodStart === periodStart);
+  if (!month) return [];
+
+  return buildGivingPreviousMonthSnapshots(month, metric as Metric, campuses);
+}
+
+async function getGivingPreviousMonthFromDb(
+  supabase: SupabaseClient
 ): Promise<MetricSnapshot[]> {
   const periodStart = getPreviousCalendarMonthStart();
   const monthly = await getMonthlySnapshotsInRange(
     supabase,
     periodStart,
-    periodStart,
+    periodStart
+  );
+
+  const previousMonthGiving = monthly.filter(
+    (row) => row.metric?.key === "giving_previous_month"
+  );
+  if (previousMonthGiving.length > 0) return previousMonthGiving;
+
+  return monthly.filter((row) => row.metric?.key === "total_giving");
+}
+
+export function getGivingPreviousMonthValue(
+  snapshots: MetricSnapshot[],
+  campusId: string | null
+): number | null {
+  const matches = snapshots.filter(
+    (row) =>
+      row.metric?.key === "giving_previous_month" ||
+      row.metric?.key === "total_giving"
+  );
+  if (matches.length === 0) return null;
+
+  if (campusId) {
+    return matches.find((row) => row.campus_id === campusId)?.value ?? null;
+  }
+
+  const churchWide = matches.find((row) => row.campus_id == null);
+  if (churchWide) return churchWide.value;
+
+  const campusRows = matches.filter((row) => row.campus_id != null);
+  if (campusRows.length === 0) return null;
+
+  return campusRows.reduce((sum, row) => sum + row.value, 0);
+}
+
+function sumGivingForFiscalYearYtd(
+  months: ParsedGivingMonth[],
+  fiscalYear: string,
+  referenceDate = new Date()
+): number | null {
+  const { start, end } = getFiscalYearMonthlyBounds(fiscalYear);
+  const previousMonth = getPreviousCalendarMonthStart(referenceDate);
+  if (previousMonth < start) return null;
+
+  const lastFyMonth = new Date(`${end}T12:00:00`);
+  lastFyMonth.setMonth(lastFyMonth.getMonth() - 1);
+  const ytdEnd =
+    previousMonth > `${lastFyMonth.getFullYear()}-${String(lastFyMonth.getMonth() + 1).padStart(2, "0")}-01`
+      ? `${lastFyMonth.getFullYear()}-${String(lastFyMonth.getMonth() + 1).padStart(2, "0")}-01`
+      : previousMonth;
+
+  let total = 0;
+  let hasData = false;
+
+  for (const month of months) {
+    if (month.periodStart < start || month.periodStart > ytdEnd) continue;
+    if (month.totalGiving == null) continue;
+    total += month.totalGiving;
+    hasData = true;
+  }
+
+  return hasData ? total : null;
+}
+
+function sumCampusGivingForFiscalYearYtd(
+  months: ParsedGivingMonth[],
+  fiscalYear: string,
+  campusSlug: GivingCampusSlug,
+  referenceDate = new Date()
+): number | null {
+  const { start, end } = getFiscalYearMonthlyBounds(fiscalYear);
+  const previousMonth = getPreviousCalendarMonthStart(referenceDate);
+  if (previousMonth < start) return null;
+
+  const lastFyMonth = new Date(`${end}T12:00:00`);
+  lastFyMonth.setMonth(lastFyMonth.getMonth() - 1);
+  const ytdEnd =
+    previousMonth > `${lastFyMonth.getFullYear()}-${String(lastFyMonth.getMonth() + 1).padStart(2, "0")}-01`
+      ? `${lastFyMonth.getFullYear()}-${String(lastFyMonth.getMonth() + 1).padStart(2, "0")}-01`
+      : previousMonth;
+
+  let total = 0;
+  let hasData = false;
+
+  for (const month of months) {
+    if (month.periodStart < start || month.periodStart > ytdEnd) continue;
+    const campusGiving = month.campuses[campusSlug]?.giving;
+    if (campusGiving == null) continue;
+    total += campusGiving;
+    hasData = true;
+  }
+
+  return hasData ? total : null;
+}
+
+async function getFiscalYearGivingYtdFromDb(
+  supabase: SupabaseClient,
+  fiscalYear: string,
+  campusId?: string | null,
+  referenceDate = new Date()
+): Promise<number | null> {
+  const { start, end } = getFiscalYearMonthlyBounds(fiscalYear);
+  const previousMonth = getPreviousCalendarMonthStart(referenceDate);
+  if (previousMonth < start) return null;
+
+  const lastFyMonth = new Date(`${end}T12:00:00`);
+  lastFyMonth.setMonth(lastFyMonth.getMonth() - 1);
+  const ytdEnd =
+    previousMonth > `${lastFyMonth.getFullYear()}-${String(lastFyMonth.getMonth() + 1).padStart(2, "0")}-01`
+      ? `${lastFyMonth.getFullYear()}-${String(lastFyMonth.getMonth() + 1).padStart(2, "0")}-01`
+      : previousMonth;
+
+  const monthly = await getMonthlySnapshotsInRange(
+    supabase,
+    start,
+    ytdEnd,
     campusId
   );
 
-  return monthly.filter((row) => row.metric?.key === "giving_previous_month");
+  const givingRows = monthly.filter((row) => row.metric?.key === "total_giving");
+  if (givingRows.length === 0) return null;
+
+  const byMonth = new Map<string, MetricSnapshot[]>();
+  for (const row of givingRows) {
+    const list = byMonth.get(row.period_start) ?? [];
+    list.push(row);
+    byMonth.set(row.period_start, list);
+  }
+
+  let total = 0;
+  for (const monthRows of byMonth.values()) {
+    if (campusId) {
+      const campusRow = monthRows.find((row) => row.campus_id === campusId);
+      if (campusRow) total += campusRow.value;
+      continue;
+    }
+
+    const churchWide = monthRows.find((row) => row.campus_id == null);
+    if (churchWide) {
+      total += churchWide.value;
+      continue;
+    }
+
+    total += monthRows
+      .filter((row) => row.campus_id != null)
+      .reduce((sum, row) => sum + row.value, 0);
+  }
+
+  return total > 0 ? total : null;
+}
+
+export async function getFiscalYearGivingYtd(
+  supabase: SupabaseClient,
+  campusId?: string | null,
+  referenceDate = new Date()
+): Promise<number | null> {
+  const fiscalYear = getCurrentFiscalYear(referenceDate);
+
+  try {
+    const [months, campuses] = await Promise.all([
+      fetchParsedGivingData(),
+      campusId ? getCampuses(supabase) : Promise.resolve([] as Campus[]),
+    ]);
+
+    if (campusId) {
+      const campusSlug = campuses.find((campus) => campus.id === campusId)
+        ?.slug as GivingCampusSlug | undefined;
+      if (campusSlug) {
+        const campusTotal = sumCampusGivingForFiscalYearYtd(
+          months,
+          fiscalYear,
+          campusSlug,
+          referenceDate
+        );
+        if (campusTotal != null) return campusTotal;
+      }
+    } else {
+      const churchWideTotal = sumGivingForFiscalYearYtd(
+        months,
+        fiscalYear,
+        referenceDate
+      );
+      if (churchWideTotal != null) return churchWideTotal;
+    }
+  } catch {
+    // Fall back to synced database snapshots.
+  }
+
+  return getFiscalYearGivingYtdFromDb(
+    supabase,
+    fiscalYear,
+    campusId,
+    referenceDate
+  );
+}
+
+export async function getGivingAnnualBudget(
+  supabase: SupabaseClient,
+  campusId?: string | null,
+  referenceDate = new Date()
+): Promise<number | null> {
+  const fiscalYear = getCurrentFiscalYear(referenceDate);
+
+  if (!campusId) {
+    try {
+      const sheetBudget = await fetchGivingAnnualBudget(fiscalYear);
+      if (sheetBudget != null) return sheetBudget;
+    } catch {
+      // Fall back to benchmark target below.
+    }
+  }
+
+  const targets = await getBenchmarkTargets(
+    supabase,
+    fiscalYear,
+    campusId ?? undefined
+  );
+  const benchmarkRow = findBenchmark(targets, "total_giving", campusId ?? null);
+  return benchmarkRow?.target_value ?? null;
 }
 
 export async function getUserProfile(
   supabase: SupabaseClient
 ): Promise<UserProfile | null> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data } = await supabase
-    .from("user_profiles")
-    .select(
-      "id, display_name, role, financial_insights, can_view_overview, can_view_adult_discipleship, can_view_next_gen, can_view_weekend_reach, can_view_operations, can_edit_benchmarks, can_access_chms, can_manage_chms_processes"
-    )
-    .eq("id", user.id)
-    .single();
-
-  return data;
+  return resolveUserProfile(supabase);
 }
 
 export async function getCampuses(
@@ -312,6 +611,296 @@ export async function getAttendanceMonthlyTrend(
     }));
 }
 
+async function getKidsAttendanceMonthlyTrendFromDb(
+  supabase: SupabaseClient,
+  campusId?: string | null,
+  monthCount = ATTENDANCE_TREND_MONTHS
+): Promise<AttendanceMonthlyTrendPoint[]> {
+  const { data: metric } = await supabase
+    .from("metrics")
+    .select("id")
+    .eq("key", "kids_avg")
+    .single();
+
+  if (!metric) return [];
+
+  let query = supabase
+    .from("metric_snapshots")
+    .select("period_start, value")
+    .eq("metric_id", metric.id)
+    .eq("period_type", "monthly")
+    .order("period_start", { ascending: false });
+
+  if (campusId) {
+    query = query.eq("campus_id", campusId);
+  } else {
+    query = query.is("campus_id", null);
+  }
+
+  const { data } = await query;
+
+  return (data ?? [])
+    .filter((row) => row.value != null && row.value > 0)
+    .slice(0, monthCount)
+    .reverse()
+    .map((row) => ({
+      periodStart: row.period_start,
+      value: row.value,
+    }));
+}
+
+function sumCampusKids(
+  campuses: MonthlyAttendanceAggregate["campuses"]
+): number | null {
+  const values = ATTENDANCE_CAMPUS_SLUGS.map(
+    (slug) => campuses[slug]?.kids ?? null
+  ).filter((value): value is number => value != null);
+
+  if (values.length === 0) return null;
+  return values.reduce((sum, value) => sum + value, 0);
+}
+
+function kidsValueFromSunday(
+  sunday: ParsedSundayAttendance,
+  campusSlug?: AttendanceCampusSlug
+): number | null {
+  if (campusSlug) {
+    return sunday.campuses[campusSlug]?.kids ?? null;
+  }
+
+  if (sunday.churchKidsTotal != null) return sunday.churchKidsTotal;
+
+  const values = ATTENDANCE_CAMPUS_SLUGS.map(
+    (slug) => sunday.campuses[slug]?.kids ?? null
+  ).filter((value): value is number => value != null);
+
+  if (values.length === 0) return null;
+  return values.reduce((sum, value) => sum + value, 0);
+}
+
+const CALENDAR_YEAR_MONTH_LABELS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
+const CALENDAR_YEAR_COLORS = [
+  "#059669",
+  "#e67e22",
+  "#7c3aed",
+  "#0176d3",
+] as const;
+
+function attendanceCalendarComparisonYears(): number[] {
+  const currentYear = new Date().getFullYear();
+  return [
+    currentYear - 3,
+    currentYear - 2,
+    currentYear - 1,
+    currentYear,
+  ];
+}
+
+export const ATTENDANCE_CALENDAR_YEAR_SERIES =
+  attendanceCalendarComparisonYears().map((year, index) => ({
+    year,
+    label: String(year),
+    color:
+      CALENDAR_YEAR_COLORS[index] ??
+      CALENDAR_YEAR_COLORS[CALENDAR_YEAR_COLORS.length - 1],
+  }));
+
+export const KIDS_CALENDAR_YEAR_SERIES = attendanceCalendarComparisonYears().map(
+  (year, index) => ({
+    year,
+    label: String(year),
+    color:
+      CALENDAR_YEAR_COLORS[index] ??
+      CALENDAR_YEAR_COLORS[CALENDAR_YEAR_COLORS.length - 1],
+  })
+);
+
+export type AttendanceCalendarYearTrendPoint = {
+  month: number;
+  label: string;
+  byYear: Record<number, number | null>;
+};
+
+export type KidsCalendarYearTrendPoint = AttendanceCalendarYearTrendPoint;
+
+export async function getAttendanceCalendarYearTrend(
+  supabase: SupabaseClient,
+  campusId?: string | null,
+  years: readonly number[] = ATTENDANCE_CALENDAR_YEAR_SERIES.map(
+    (series) => series.year
+  )
+): Promise<AttendanceCalendarYearTrendPoint[]> {
+  try {
+    const campuses = campusId ? await getCampuses(supabase) : [];
+    const campusSlug = campusId
+      ? (campuses.find((campus) => campus.id === campusId)?.slug as
+          | AttendanceCampusSlug
+          | undefined)
+      : undefined;
+    const sundays = await fetchParsedTotalAttendanceYears([...years]);
+    if (sundays.length === 0) return [];
+
+    const grouped = new Map<number, Map<number, number[]>>();
+    for (const sunday of sundays) {
+      const year = Number(sunday.date.slice(0, 4));
+      const month = Number(sunday.date.slice(5, 7));
+      const value = campusSlug
+        ? sunday.campuses[campusSlug]
+        : sunday.inPersonTotal;
+      if (value == null || value <= 0) continue;
+
+      const yearMap = grouped.get(year) ?? new Map<number, number[]>();
+      const monthValues = yearMap.get(month) ?? [];
+      monthValues.push(value);
+      yearMap.set(month, monthValues);
+      grouped.set(year, yearMap);
+    }
+
+    return CALENDAR_YEAR_MONTH_LABELS.map((label, index) => {
+      const month = index + 1;
+      const byYear: Record<number, number | null> = {};
+
+      for (const year of years) {
+        const values = grouped.get(year)?.get(month) ?? [];
+        byYear[year] =
+          values.length > 0
+            ? values.reduce((sum, value) => sum + value, 0) / values.length
+            : null;
+      }
+
+      return { month, label, byYear };
+    });
+  } catch {
+    return [];
+  }
+}
+
+export async function getKidsAttendanceCalendarYearTrend(
+  supabase: SupabaseClient,
+  campusId?: string | null,
+  years: readonly number[] = KIDS_CALENDAR_YEAR_SERIES.map(
+    (series) => series.year
+  )
+): Promise<KidsCalendarYearTrendPoint[]> {
+  try {
+    const campuses = campusId ? await getCampuses(supabase) : [];
+    const campusSlug = campusId
+      ? (campuses.find((campus) => campus.id === campusId)?.slug as
+          | AttendanceCampusSlug
+          | undefined)
+      : undefined;
+
+    const sundays = campusSlug
+      ? (await fetchParsedAttendanceYears([...years])).map((sunday) => ({
+          date: sunday.date,
+          churchKidsTotal: kidsValueFromSunday(sunday, campusSlug),
+        }))
+      : (await fetchParsedKidsAttendanceYears([...years])).map((sunday) => ({
+          date: sunday.date,
+          churchKidsTotal: sunday.churchKidsTotal,
+        }));
+
+    if (sundays.length === 0) return [];
+
+    const grouped = new Map<number, Map<number, number[]>>();
+
+    for (const sunday of sundays) {
+      const year = Number(sunday.date.slice(0, 4));
+      const month = Number(sunday.date.slice(5, 7));
+      const value = sunday.churchKidsTotal;
+
+      if (value == null || value <= 0) continue;
+
+      const yearMap = grouped.get(year) ?? new Map<number, number[]>();
+      const monthValues = yearMap.get(month) ?? [];
+      monthValues.push(value);
+      yearMap.set(month, monthValues);
+      grouped.set(year, yearMap);
+    }
+
+    return CALENDAR_YEAR_MONTH_LABELS.map((label, index) => {
+      const month = index + 1;
+      const byYear: Record<number, number | null> = {};
+
+      for (const year of years) {
+        const values = grouped.get(year)?.get(month) ?? [];
+        byYear[year] =
+          values.length > 0
+            ? values.reduce((sum, value) => sum + value, 0) / values.length
+            : null;
+      }
+
+      return { month, label, byYear };
+    });
+  } catch {
+    return [];
+  }
+}
+
+export async function getKidsAttendanceMonthlyTrend(
+  supabase: SupabaseClient,
+  campusId?: string | null,
+  monthCount = ATTENDANCE_TREND_MONTHS
+): Promise<AttendanceMonthlyTrendPoint[]> {
+  try {
+    const currentYear = new Date().getFullYear();
+    const sundays = await fetchParsedAttendanceYears([
+      currentYear - 1,
+      currentYear,
+    ]);
+
+    if (sundays.length === 0) {
+      return getKidsAttendanceMonthlyTrendFromDb(
+        supabase,
+        campusId,
+        monthCount
+      );
+    }
+
+    const campuses = campusId ? await getCampuses(supabase) : [];
+    const campusSlug = campusId
+      ? (campuses.find((campus) => campus.id === campusId)?.slug as
+          | AttendanceCampusSlug
+          | undefined)
+      : undefined;
+
+    const { monthly } = buildAttendanceAggregates(sundays);
+    const points = monthly
+      .map((month) => {
+        const value = campusSlug
+          ? (month.campuses[campusSlug]?.kids ?? null)
+          : month.churchKidsTotal ?? sumCampusKids(month.campuses);
+
+        if (value == null || value <= 0) return null;
+        return { periodStart: month.periodStart, value };
+      })
+      .filter((point): point is AttendanceMonthlyTrendPoint => point != null)
+      .sort((a, b) => a.periodStart.localeCompare(b.periodStart));
+
+    return points.slice(-monthCount);
+  } catch {
+    return getKidsAttendanceMonthlyTrendFromDb(
+      supabase,
+      campusId,
+      monthCount
+    );
+  }
+}
+
 export async function getMonthlyTrend(
   supabase: SupabaseClient,
   metricKey: string,
@@ -338,8 +927,42 @@ export async function getMonthlyTrend(
   return (data ?? []) as MetricSnapshot[];
 }
 
-const GIVING_TREND_MONTHS = 12;
 const ATTENDANCE_TREND_MONTHS = 12;
+
+function filterGivingMonthsForFiscalYtd(
+  months: ParsedGivingMonth[],
+  fiscalYear = getCurrentFiscalYear(),
+  referenceDate = new Date()
+): ParsedGivingMonth[] {
+  const { start } = getFiscalYearMonthlyBounds(fiscalYear);
+  const ytdEnd = getFiscalYearYtdMonthEnd(fiscalYear, referenceDate);
+  if (!ytdEnd) return [];
+
+  return months.filter(
+    (month) => month.periodStart >= start && month.periodStart <= ytdEnd
+  );
+}
+
+function givingMonthToTrendPoint(
+  month: ParsedGivingMonth
+): GivingMonthlyTrendPoint {
+  const campuses = emptyCampusTotals();
+
+  for (const campus of GIVING_CAMPUS_CHART_SERIES) {
+    campuses[campus.slug] = month.campuses[campus.slug]?.giving ?? 0;
+  }
+
+  const campusTotal = GIVING_CAMPUS_CHART_SERIES.reduce(
+    (sum, campus) => sum + campuses[campus.slug],
+    0
+  );
+
+  return {
+    periodStart: month.periodStart,
+    campuses,
+    total: month.totalGiving ?? campusTotal,
+  };
+}
 
 export type AttendanceMonthlyTrendPoint = {
   periodStart: string;
@@ -373,9 +996,29 @@ function emptyCampusTotals(): Record<GivingCampusChartSlug, number> {
 }
 
 export async function getGivingMonthlyTrend(
-  supabase: SupabaseClient,
-  monthCount = GIVING_TREND_MONTHS
+  supabase: SupabaseClient
 ): Promise<GivingMonthlyTrendPoint[]> {
+  try {
+    const months = filterGivingMonthsForFiscalYtd(await fetchParsedGivingData());
+    return months
+      .map(givingMonthToTrendPoint)
+      .filter(
+        (point) =>
+          point.total > 0 ||
+          GIVING_CAMPUS_CHART_SERIES.some(
+            (campus) => point.campuses[campus.slug] > 0
+          )
+      )
+      .sort((a, b) => a.periodStart.localeCompare(b.periodStart));
+  } catch {
+    // Fall back to synced database snapshots.
+  }
+
+  const fiscalYear = getCurrentFiscalYear();
+  const { start } = getFiscalYearMonthlyBounds(fiscalYear);
+  const ytdEnd = getFiscalYearYtdMonthEnd(fiscalYear);
+  if (!ytdEnd) return [];
+
   const { data: metric } = await supabase
     .from("metrics")
     .select("id")
@@ -401,11 +1044,13 @@ export async function getGivingMonthlyTrend(
     .select("period_start, value, campus_id")
     .eq("metric_id", metric.id)
     .eq("period_type", "monthly")
+    .gte("period_start", start)
+    .lte("period_start", ytdEnd)
     .in(
       "campus_id",
       campuses.map((campus) => campus.id)
     )
-    .order("period_start", { ascending: false });
+    .order("period_start", { ascending: true });
 
   const byMonth = new Map<string, GivingMonthlyTrendPoint>();
 
@@ -435,9 +1080,7 @@ export async function getGivingMonthlyTrend(
       ),
     }))
     .filter((point) => point.total > 0)
-    .sort((a, b) => b.periodStart.localeCompare(a.periodStart))
-    .slice(0, monthCount)
-    .reverse();
+    .sort((a, b) => a.periodStart.localeCompare(b.periodStart));
 }
 
 export type GivingVsExpensesPoint = {
@@ -478,9 +1121,28 @@ async function getChurchWideMonthlyMetricValues(
 }
 
 export async function getGivingVsExpensesTrend(
-  supabase: SupabaseClient,
-  monthCount = GIVING_TREND_MONTHS
+  supabase: SupabaseClient
 ): Promise<GivingVsExpensesPoint[]> {
+  try {
+    const months = filterGivingMonthsForFiscalYtd(await fetchParsedGivingData());
+    return months
+      .map((month) => ({
+        periodStart: month.periodStart,
+        giving: month.totalGiving ?? 0,
+        expenses: month.expenses ?? 0,
+        net: (month.totalGiving ?? 0) - (month.expenses ?? 0),
+      }))
+      .filter((point) => point.giving > 0 || point.expenses > 0)
+      .sort((a, b) => a.periodStart.localeCompare(b.periodStart));
+  } catch {
+    // Fall back to synced database snapshots.
+  }
+
+  const fiscalYear = getCurrentFiscalYear();
+  const { start } = getFiscalYearMonthlyBounds(fiscalYear);
+  const ytdEnd = getFiscalYearYtdMonthEnd(fiscalYear);
+  if (!ytdEnd) return [];
+
   const [givingByMonth, expensesByMonth] = await Promise.all([
     getChurchWideMonthlyMetricValues(supabase, "total_giving"),
     getChurchWideMonthlyMetricValues(supabase, "general_fund_expenses"),
@@ -492,6 +1154,7 @@ export async function getGivingVsExpensesTrend(
   ]);
 
   return [...periodStarts]
+    .filter((periodStart) => periodStart >= start && periodStart <= ytdEnd)
     .map((periodStart) => {
       const giving = givingByMonth.get(periodStart) ?? 0;
       const expenses = expensesByMonth.get(periodStart) ?? 0;
@@ -503,9 +1166,7 @@ export async function getGivingVsExpensesTrend(
       };
     })
     .filter((point) => point.giving > 0 || point.expenses > 0)
-    .sort((a, b) => b.periodStart.localeCompare(a.periodStart))
-    .slice(0, monthCount)
-    .reverse();
+    .sort((a, b) => a.periodStart.localeCompare(b.periodStart));
 }
 
 export type LastWeekAttendanceByCampus = {
@@ -579,6 +1240,19 @@ async function getLastWeekAttendanceFromDb(
 export async function getLastWeekAttendanceByCampus(
   supabase: SupabaseClient
 ): Promise<LastWeekAttendanceByCampus | null> {
+  return getLastWeekCampusAttendanceByCampus(supabase, "total");
+}
+
+export async function getLastWeekKidsAttendanceByCampus(
+  supabase: SupabaseClient
+): Promise<LastWeekAttendanceByCampus | null> {
+  return getLastWeekCampusAttendanceByCampus(supabase, "kids");
+}
+
+async function getLastWeekCampusAttendanceByCampus(
+  supabase: SupabaseClient,
+  measure: "total" | "kids"
+): Promise<LastWeekAttendanceByCampus | null> {
   try {
     const currentYear = new Date().getFullYear();
     const sundays = await fetchParsedAttendanceYears([
@@ -587,7 +1261,9 @@ export async function getLastWeekAttendanceByCampus(
     ]);
 
     if (sundays.length === 0) {
-      return getLastWeekAttendanceFromDb(supabase);
+      return measure === "total"
+        ? getLastWeekAttendanceFromDb(supabase)
+        : null;
     }
 
     const latestSunday = sundays[sundays.length - 1];
@@ -603,8 +1279,8 @@ export async function getLastWeekAttendanceByCampus(
     );
 
     const campusRows = ATTENDANCE_CAMPUS_SLUGS.map((slug) => {
-      const lastSunday = latestSunday.campuses[slug]?.total ?? null;
-      const lastMonthAvg = previousMonth?.campuses[slug]?.total ?? null;
+      const lastSunday = latestSunday.campuses[slug]?.[measure] ?? null;
+      const lastMonthAvg = previousMonth?.campuses[slug]?.[measure] ?? null;
       if (lastSunday == null && lastMonthAvg == null) return null;
 
       return {
@@ -615,7 +1291,9 @@ export async function getLastWeekAttendanceByCampus(
     }).filter((campus): campus is NonNullable<typeof campus> => campus != null);
 
     if (campusRows.length === 0) {
-      return getLastWeekAttendanceFromDb(supabase);
+      return measure === "total"
+        ? getLastWeekAttendanceFromDb(supabase)
+        : null;
     }
 
     return {
@@ -624,7 +1302,9 @@ export async function getLastWeekAttendanceByCampus(
       campuses: campusRows,
     };
   } catch {
-    return getLastWeekAttendanceFromDb(supabase);
+    return measure === "total"
+      ? getLastWeekAttendanceFromDb(supabase)
+      : null;
   }
 }
 
@@ -926,7 +1606,7 @@ export function buildCardPeriodValuesForMetric(
   campusId: string | null
 ): Record<CardPeriodRange, number | null> {
   if (metricKey === "giving_previous_month") {
-    const value = getLatestMonthlyValue(monthlyGiving, metricKey, campusId);
+    const value = getGivingPreviousMonthValue(monthlyGiving, campusId);
     return {
       "this-month": null,
       "previous-month": value,

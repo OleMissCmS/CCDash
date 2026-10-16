@@ -2,28 +2,56 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   canEditBenchmarks,
   canManageUsers,
+  canViewMonthlyExpenses,
+  canViewVolunteerMatrix,
   isAdmin,
 } from "@/lib/permissions";
 import type { UserProfile } from "@/lib/types";
 import { BrandLogo } from "./BrandLogo";
-import { ThemeSelector } from "./ThemeSelector";
+import { CHMS_ENABLED } from "@/lib/feature-flags";
+
+const BASE_APP_LINKS = [
+  { href: "/dashboard", label: "Dashboard", match: "/dashboard" },
+] as const;
+
+const VOLUNTEER_MATRIX_LINKS = [
+  {
+    href: "/volunteer-matrix",
+    label: "Volunteer Matrix",
+    match: "/volunteer-matrix",
+  },
+] as const;
+
+const FINANCIAL_APP_LINKS = [
+  {
+    href: "/monthly-expenses",
+    label: "Monthly Expenses",
+    match: "/monthly-expenses",
+  },
+] as const;
 
 type NavbarProps = {
   profile: UserProfile | null;
-  campusFilter?: React.ReactNode;
-  yearToggle?: React.ReactNode;
 };
 
-export function Navbar({
-  profile,
-  campusFilter,
-  yearToggle,
-}: NavbarProps) {
+export function Navbar({ profile }: NavbarProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const appLinks = [
+    ...BASE_APP_LINKS,
+    ...(profile && canViewVolunteerMatrix(profile)
+      ? VOLUNTEER_MATRIX_LINKS
+      : []),
+    ...(profile && canViewMonthlyExpenses(profile) ? FINANCIAL_APP_LINKS : []),
+    ...(CHMS_ENABLED
+      ? [{ href: "/chms", label: "ChMS", match: "/chms" } as const]
+      : []),
+  ];
 
   async function signOut() {
     const supabase = createClient();
@@ -33,39 +61,46 @@ export function Navbar({
   }
 
   return (
-    <header className="navbar-brand-bar">
-      <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 lg:px-8">
-        <div className="flex items-center justify-between gap-4">
-          <BrandLogo showSubtitle href="/dashboard" />
-          <div className="flex shrink-0 items-center gap-2">
-            <ThemeSelector />
+    <>
+      <header className="sfdc-global-header">
+        <div className="sfdc-global-header__inner">
+          <Link href="/dashboard" className="flex items-center gap-2 shrink-0">
+            <BrandLogo showSubtitle={false} href={undefined} variant="light" />
+          </Link>
+          <div className="sfdc-global-search hidden md:block">
+            <input
+              type="search"
+              placeholder="Search dashboards, reports, and more…"
+              aria-label="Global search"
+              disabled
+            />
+          </div>
+          <div className="sfdc-global-actions">
             {profile && canEditBenchmarks(profile) && (
-              <Link href="/settings/benchmarks" className="navbar-link">
+              <Link href="/settings/benchmarks" className="sfdc-global-link">
                 Benchmarks
               </Link>
             )}
             {profile && isAdmin(profile) && (
-              <Link href="/settings/alerts" className="navbar-link">
+              <Link href="/settings/alerts" className="sfdc-global-link">
                 Alerts
               </Link>
             )}
             {profile && canManageUsers(profile) && (
-              <Link href="/settings/users" className="navbar-link">
+              <Link href="/settings/users" className="sfdc-global-link">
                 Users
               </Link>
             )}
             <div className="dropdown dropdown-end">
-              <div tabIndex={0} role="button" className="navbar-user-btn">
+              <div tabIndex={0} role="button" className="sfdc-global-user">
                 {profile?.display_name ?? "Staff"}
               </div>
               <ul
                 tabIndex={0}
-                className="menu dropdown-content z-50 mt-2 w-52 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg text-base-content"
+                className="menu dropdown-content z-50 mt-2 w-52 rounded border border-base-300 bg-base-100 p-2 shadow-lg text-base-content"
               >
                 <li className="menu-title text-xs">
                   {profile?.role === "admin" ? "Administrator" : "Staff"}
-                  {profile?.can_view_operations && " · Operations access"}
-                  {profile?.can_edit_benchmarks && " · Benchmark editor"}
                 </li>
                 <li>
                   <button type="button" onClick={signOut}>
@@ -76,12 +111,28 @@ export function Navbar({
             </div>
           </div>
         </div>
+      </header>
 
-        <div className="navbar-controls">
-          {campusFilter}
-          {yearToggle}
+      <nav className="sfdc-app-nav" aria-label="Application">
+        <div className="sfdc-app-nav__inner">
+          {appLinks.map((link) => {
+            const active =
+              pathname === link.href ||
+              pathname.startsWith(`${link.match}/`);
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`sfdc-app-nav__link${
+                  active ? " sfdc-app-nav__link--active" : ""
+                }`}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
         </div>
-      </div>
-    </header>
+      </nav>
+    </>
   );
 }

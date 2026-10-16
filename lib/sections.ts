@@ -1,4 +1,4 @@
-import type { Metric } from "./types";
+import type { BenchmarkMinistryArea, BenchmarkTarget, Metric } from "./types";
 
 export type ViewSection =
   | "vital-signs"
@@ -23,8 +23,75 @@ export const VIEW_SECTION_LABELS: Record<ViewSection, string> = {
   "adult-discipleship": "Adult Discipleship",
   "next-gen": "Next Gen",
   "weekend-reach": "Weekend & Reach",
-  operations: "Operations",
+  operations: "Financials",
 };
+
+export const VIEW_SECTION_DESCRIPTIONS: Record<ViewSection, string> = {
+  "vital-signs":
+    "Leadership vital signs for attendance, kids, serving, groups, and baptisms.",
+  overview: "Church-wide ministry metrics and trends for the current fiscal year.",
+  "adult-discipleship":
+    "First-time guests, group participation, and baptism signups.",
+  "next-gen": "Kids and student attendance across campuses.",
+  "weekend-reach":
+    "Weekend attendance, serving, and reach metrics by campus.",
+  operations:
+    "Budget, giving, expenses, and household stewardship.",
+};
+
+export type MetricLayoutGroup = {
+  columns: 2 | 3;
+  keys: readonly string[];
+};
+
+const OVERVIEW_METRIC_GROUPS: MetricLayoutGroup[] = [
+  { columns: 2, keys: ["adult_worship_avg", "total_in_person_avg"] },
+  { columns: 2, keys: ["kids_avg", "kids_pct_of_attendance"] },
+  { columns: 2, keys: ["students_avg", "total_serving"] },
+];
+
+const SECTION_METRIC_LAYOUT: Partial<
+  Record<ViewSection, readonly MetricLayoutGroup[]>
+> = {
+  overview: OVERVIEW_METRIC_GROUPS,
+  "weekend-reach": [
+    { columns: 2, keys: ["adult_worship_avg", "total_in_person_avg"] },
+  ],
+  "next-gen": [{ columns: 2, keys: ["kids_avg", "kids_pct_of_attendance"] }],
+  operations: [
+    { columns: 2, keys: ["giving_previous_month", "giving_households"] },
+  ],
+};
+
+export function buildMetricLayoutGroups(
+  section: ViewSection,
+  metrics: Metric[]
+): MetricLayoutGroup[] {
+  const preset = SECTION_METRIC_LAYOUT[section];
+  const metricKeys = new Set(metrics.map((metric) => metric.key));
+
+  if (preset) {
+    const groups: MetricLayoutGroup[] = preset
+      .map((group) => ({
+        columns: group.columns,
+        keys: group.keys.filter((key) => metricKeys.has(key)),
+      }))
+      .filter((group) => group.keys.length > 0);
+
+    const assigned = new Set(groups.flatMap((group) => group.keys));
+    const remaining = metrics
+      .map((metric) => metric.key)
+      .filter((key) => !assigned.has(key));
+
+    if (remaining.length > 0) {
+      groups.push({ columns: 2, keys: remaining });
+    }
+
+    return groups;
+  }
+
+  return [{ columns: 2, keys: metrics.map((metric) => metric.key) }];
+}
 
 const SECTION_METRIC_KEYS: Record<
   ViewSection,
@@ -91,18 +158,52 @@ export function filterMetricsForSection(
   return [...filtered].sort((a, b) => a.sort_order - b.sort_order);
 }
 
-export function metricKeysForSection(
+export const BENCHMARK_MINISTRY_AREAS: readonly BenchmarkMinistryArea[] = [
+  "weekend-reach",
+  "adult-discipleship",
+  "next-gen",
+];
+
+export function defaultMinistryAreaForMetric(
+  metricKey: string | undefined
+): BenchmarkMinistryArea | null {
+  if (!metricKey) return null;
+  return (
+    BENCHMARK_MINISTRY_AREAS.find((area) => {
+      const keys = SECTION_METRIC_KEYS[area];
+      return keys !== "all" && keys.includes(metricKey);
+    }) ?? null
+  );
+}
+
+export function benchmarkTargetsForSection(
+  targets: BenchmarkTarget[],
   section: ViewSection,
   canViewFinancial: boolean
-): string[] | null {
+): BenchmarkTarget[] {
+  const visible = canViewFinancial
+    ? targets
+    : targets.filter((target) => !target.metric?.requires_financial);
+
   const keys = SECTION_METRIC_KEYS[section];
-  if (keys === "all") return null;
-  if (!canViewFinancial && section === "operations") return [];
-  return [...keys];
+  if (keys === "all") return visible;
+
+  return visible.filter((target) => {
+    if (target.ministry_area) return target.ministry_area === section;
+    return target.metric != null && keys.includes(target.metric.key);
+  });
 }
 
 export function sectionShowsAttendanceTrend(section: ViewSection): boolean {
   return section === "overview" || section === "weekend-reach";
+}
+
+export function sectionShowsKidsAttendanceCharts(section: ViewSection): boolean {
+  return section === "overview" || section === "next-gen";
+}
+
+export function sectionShowsKidsCalendarYearChart(section: ViewSection): boolean {
+  return section === "next-gen";
 }
 
 export function sectionShowsGivingTrend(section: ViewSection): boolean {

@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireUserManager } from "@/lib/admin-auth";
-import { ADMIN_PERMISSIONS } from "@/lib/permissions";
+import {
+  ADMIN_PERMISSIONS,
+  ALL_CAMPUS_ACCESS,
+  normalizeCampusAccess,
+  normalizeUserProfile,
+} from "@/lib/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { ManagedUser, UserProfile } from "@/lib/types";
+import { queryAllUserProfileRows } from "@/lib/user-profile";
 
 type CreateUserBody = {
   email: string;
@@ -22,6 +28,8 @@ function buildPermissionPayload(
       financial_insights: true,
       can_access_chms: true,
       can_manage_chms_processes: true,
+      can_view_monthly_expenses: true,
+      monthly_expenses_scope: "all",
     };
   }
 
@@ -32,6 +40,16 @@ function buildPermissionPayload(
     can_view_next_gen: permissions?.can_view_next_gen ?? true,
     can_view_weekend_reach: permissions?.can_view_weekend_reach ?? true,
     can_view_operations: permissions?.can_view_operations ?? false,
+    can_view_monthly_expenses:
+      permissions?.can_view_monthly_expenses ??
+      permissions?.can_view_operations ??
+      false,
+    monthly_expenses_scope: permissions?.monthly_expenses_scope ?? "all",
+    can_view_volunteer_matrix: permissions?.can_view_volunteer_matrix ?? true,
+    campus_access:
+      permissions?.campus_access === undefined
+        ? ALL_CAMPUS_ACCESS
+        : normalizeCampusAccess(permissions.campus_access),
     can_edit_benchmarks: permissions?.can_edit_benchmarks ?? false,
     can_access_chms: permissions?.can_access_chms ?? true,
     can_manage_chms_processes: permissions?.can_manage_chms_processes ?? false,
@@ -47,23 +65,20 @@ export async function GET() {
 
   try {
     const admin = createAdminClient();
-    const [{ data: authData, error: listError }, { data: profiles, error: profilesError }] =
-      await Promise.all([
-        admin.auth.admin.listUsers({ perPage: 200 }),
-        admin.from("user_profiles").select(
-          "id, display_name, role, financial_insights, can_view_overview, can_view_adult_discipleship, can_view_next_gen, can_view_weekend_reach, can_view_operations, can_edit_benchmarks, can_access_chms, can_manage_chms_processes"
-        ),
-      ]);
+    const [{ data: authData, error: listError }, profiles] = await Promise.all([
+      admin.auth.admin.listUsers({ perPage: 200 }),
+      queryAllUserProfileRows(admin),
+    ]);
 
-    if (listError || profilesError) {
+    if (listError) {
       return NextResponse.json(
-        { error: listError?.message ?? profilesError?.message ?? "Failed to load users" },
+        { error: listError.message ?? "Failed to load users" },
         { status: 500 }
       );
     }
 
     const profileById = new Map(
-      (profiles ?? []).map((row) => [row.id, row as UserProfile])
+      profiles.map((row) => [row.id, normalizeUserProfile(row)])
     );
 
     const users: ManagedUser[] = (authData.users ?? []).map((user) => {
@@ -82,6 +97,13 @@ export async function GET() {
         can_view_next_gen: existing?.can_view_next_gen ?? true,
         can_view_weekend_reach: existing?.can_view_weekend_reach ?? true,
         can_view_operations: existing?.can_view_operations ?? false,
+        can_view_monthly_expenses:
+          existing?.can_view_monthly_expenses ??
+          existing?.can_view_operations ??
+          false,
+        monthly_expenses_scope: existing?.monthly_expenses_scope ?? "all",
+        can_view_volunteer_matrix: existing?.can_view_volunteer_matrix ?? true,
+        campus_access: existing?.campus_access ?? ALL_CAMPUS_ACCESS,
         can_edit_benchmarks: existing?.can_edit_benchmarks ?? false,
         can_access_chms: existing?.can_access_chms ?? true,
         can_manage_chms_processes: existing?.can_manage_chms_processes ?? false,
@@ -129,6 +151,14 @@ export async function POST(request: Request) {
     );
   }
 
+  const permissionPayload = buildPermissionPayload(role, body.permissions);
+  if (permissionPayload.campus_access.length === 0) {
+    return NextResponse.json(
+      { error: "Select at least one campus access option" },
+      { status: 400 }
+    );
+  }
+
   try {
     const admin = createAdminClient();
     const displayName = body.displayName?.trim() || email.split("@")[0];
@@ -147,8 +177,6 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-
-    const permissionPayload = buildPermissionPayload(role, body.permissions);
 
     const { error: profileError } = await admin
       .from("user_profiles")

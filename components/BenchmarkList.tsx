@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { formatValue } from "@/lib/format";
+import { VIEW_SECTION_LABELS } from "@/lib/sections";
 import type { BenchmarkTarget, Campus, Metric } from "@/lib/types";
 import { BenchmarkEditModal } from "./BenchmarkEditModal";
 
@@ -44,6 +45,7 @@ export function BenchmarkList({
           <thead>
             <tr>
               <th>Metric</th>
+              <th>Area</th>
               <th>Campus</th>
               <th>Benchmark</th>
               <th>Stretch</th>
@@ -67,6 +69,9 @@ export function BenchmarkList({
                 aria-label={`Edit benchmark for ${b.metric?.label ?? "metric"}`}
               >
                 <td>{b.metric?.label}</td>
+                <td>
+                  {b.ministry_area ? VIEW_SECTION_LABELS[b.ministry_area] : "—"}
+                </td>
                 <td>{b.campus?.name ?? "Church-wide"}</td>
                 <td>
                   {b.metric

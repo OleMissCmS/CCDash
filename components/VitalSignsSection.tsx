@@ -1,7 +1,11 @@
 import { BaptismsPanel } from "@/components/BaptismsPanel";
+import { AttendanceCalendarYearTrendChart } from "@/components/Charts";
 import { VitalSignCard } from "@/components/VitalSignCard";
 import { createClient } from "@/lib/supabase/server";
-import { getCampuses } from "@/lib/metrics";
+import {
+  getAttendanceCalendarYearTrend,
+  getCampuses,
+} from "@/lib/metrics";
 import { getVitalSignsData } from "@/lib/vital-signs";
 
 function SectionHeading({
@@ -12,10 +16,10 @@ function SectionHeading({
   description?: string;
 }) {
   return (
-    <div className="space-y-1">
-      <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+    <div className="sfdc-section-heading">
+      <h2 className="sfdc-section-heading__title">{title}</h2>
       {description && (
-        <p className="text-sm text-base-content/60">{description}</p>
+        <p className="sfdc-section-heading__description">{description}</p>
       )}
     </div>
   );
@@ -23,41 +27,89 @@ function SectionHeading({
 
 export async function VitalSignsSection({
   campusId = null,
+  visibleCampusIds = null,
 }: {
   campusId?: string | null;
+  visibleCampusIds?: string[] | null;
 }) {
   const supabase = await createClient();
   const campuses = await getCampuses(supabase);
-  const data = await getVitalSignsData(supabase, campuses, campusId);
+  const [data, attendanceTrend] = await Promise.all([
+    getVitalSignsData(supabase, campuses, campusId),
+    getAttendanceCalendarYearTrend(supabase, campusId),
+  ]);
+  const attendanceScopeLabel =
+    campuses.find((campus) => campus.id === campusId)?.name ?? "Church-wide";
+
+  const campusAttendance = campusId
+    ? data.attendance.byCampus.find((campus) => campus.campusId === campusId)
+    : undefined;
+  const campusKids = campusId
+    ? data.kids.byCampus.find((campus) => campus.campusId === campusId)
+    : undefined;
+
+  const attendanceCards = campusAttendance
+    ? {
+        monthly: campusAttendance.monthly,
+        fiscalYear: {
+          ...campusAttendance.fiscalYear,
+          subtitle: `Avg weekly · ${data.fiscalYearLabel}`,
+        },
+      }
+    : data.attendance.churchWide;
+  const kidsCards = campusKids
+    ? {
+        monthly: campusKids.monthly,
+        yearOverYearKids: campusKids.yearOverYearKids,
+        monthlyPct: campusKids.monthlyPct,
+        yearOverYearPct: campusKids.yearOverYearPct,
+      }
+    : data.kids.churchWide;
+  const kidsPctDescription = campusKids
+    ? "% uses kids ÷ total in-person"
+    : "church-wide % uses kids ÷ (kids + adults); per campus uses kids ÷ total in-person";
+  const isVisibleCampus = (row: { campusId: string }) =>
+    visibleCampusIds == null || visibleCampusIds.includes(row.campusId);
+  const attendanceRows = data.attendance.byCampus.filter(isVisibleCampus);
+  const kidsRows = data.kids.byCampus.filter(isVisibleCampus);
+  const servingRows = data.serving.byCampus.filter(isVisibleCampus);
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
       <section className="space-y-4">
         <SectionHeading
           title="Average Attendance"
-          description="Avg weekly in-person attendance · monthly snapshot and fiscal-year average"
+          description={`Avg weekly in-person attendance for ${data.latestMonthLabel} and fiscal-year average`}
         />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="sfdc-grid sfdc-grid--2">
           <VitalSignCard
-            title="Church-wide · Monthly"
-            reading={data.attendance.churchWide.monthly}
+            title={`${attendanceScopeLabel} · ${data.latestMonthLabel}`}
+            reading={attendanceCards.monthly}
           />
           <VitalSignCard
-            title={`Church-wide · ${data.fiscalYearLabel}`}
-            reading={data.attendance.churchWide.fiscalYear}
+            title={`${attendanceScopeLabel} · ${data.fiscalYearLabel}`}
+            reading={attendanceCards.fiscalYear}
           />
         </div>
+        {attendanceTrend.length > 0 && (
+          <AttendanceCalendarYearTrendChart
+            data={attendanceTrend}
+            title="Monthly average attendance (calendar year)"
+            subtitle={`${attendanceScopeLabel} · Current year and previous 3 years · Sunday Attendance sheet`}
+          />
+        )}
+        {attendanceRows.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-base-300">
           <table className="table table-sm">
             <thead>
               <tr className="text-xs uppercase tracking-wide text-base-content/60">
                 <th>Campus</th>
-                <th className="text-right">Monthly</th>
+                <th className="text-right">{data.latestMonthLabel}</th>
                 <th className="text-right">{data.fiscalYearLabel}</th>
               </tr>
             </thead>
             <tbody>
-              {data.attendance.byCampus.map((campus) => (
+              {attendanceRows.map((campus) => (
                 <tr key={campus.campusId}>
                   <td className="font-medium">{campus.campusName}</td>
                   <td className="text-right tabular-nums">
@@ -79,49 +131,55 @@ export async function VitalSignsSection({
             </tbody>
           </table>
         </div>
+        )}
         <p className="text-xs text-base-content/50">
-          Monthly column: {data.latestMonthLabel}
+          Monthly column uses the previous calendar month ({data.latestMonthLabel})
         </p>
       </section>
 
       <section className="space-y-4">
         <SectionHeading
           title="Kids Attendance"
-          description="Kids ÷ (Kids + Adults) at church-wide; per campus uses kids ÷ total in-person"
+          description={`Kids metrics for ${data.latestMonthLabel} · ${kidsPctDescription}`}
         />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="sfdc-grid sfdc-grid--2">
           <VitalSignCard
-            title="Church-wide · Monthly kids"
-            reading={data.kids.churchWide.monthly}
+            className="sfdc-vital-sign-card"
+            title={`${attendanceScopeLabel} · ${data.latestMonthLabel} kids`}
+            reading={kidsCards.monthly}
           />
           <VitalSignCard
-            title={`Church-wide · ${data.fiscalYearLabel} kids`}
-            reading={data.kids.churchWide.fiscalYear}
+            className="sfdc-vital-sign-card"
+            title={`${attendanceScopeLabel} · Kids YoY`}
+            reading={kidsCards.yearOverYearKids}
           />
           <VitalSignCard
-            title="Church-wide · Monthly %"
-            reading={data.kids.churchWide.monthlyPct}
+            className="sfdc-vital-sign-card"
+            title={`${attendanceScopeLabel} · ${data.latestMonthLabel} %`}
+            reading={kidsCards.monthlyPct}
             unit="percent"
           />
           <VitalSignCard
-            title={`Church-wide · ${data.fiscalYearLabel} %`}
-            reading={data.kids.churchWide.fiscalYearPct}
+            className="sfdc-vital-sign-card"
+            title={`${attendanceScopeLabel} · % YoY`}
+            reading={kidsCards.yearOverYearPct}
             unit="percent"
           />
         </div>
+        {kidsRows.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-base-300">
           <table className="table table-sm">
             <thead>
               <tr className="text-xs uppercase tracking-wide text-base-content/60">
                 <th>Campus</th>
-                <th className="text-right">Monthly kids</th>
+                <th className="text-right">{data.latestMonthLabel} kids</th>
                 <th className="text-right">{data.fiscalYearLabel} kids</th>
-                <th className="text-right">Monthly %</th>
+                <th className="text-right">{data.latestMonthLabel} %</th>
                 <th className="text-right">{data.fiscalYearLabel} %</th>
               </tr>
             </thead>
             <tbody>
-              {data.kids.byCampus.map((campus) => (
+              {kidsRows.map((campus) => (
                 <tr key={campus.campusId}>
                   <td className="font-medium">{campus.campusName}</td>
                   <td className="text-right tabular-nums">
@@ -154,6 +212,7 @@ export async function VitalSignsSection({
             </tbody>
           </table>
         </div>
+        )}
       </section>
 
       <section className="space-y-4">
@@ -161,7 +220,7 @@ export async function VitalSignsSection({
           title="Serving"
           description="Current volunteers from Volunteer Matrix, summed by campus"
         />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="sfdc-grid sfdc-grid--2">
           <VitalSignCard
             title="Total People Serving"
             reading={data.serving.total}
@@ -173,7 +232,7 @@ export async function VitalSignsSection({
             unit="percent"
           />
         </div>
-        {!campusId && data.serving.byCampus.length > 0 && (
+        {!campusId && servingRows.length > 0 && (
           <div className="overflow-x-auto rounded-lg border border-base-300">
             <table className="table table-sm">
               <thead>
@@ -183,7 +242,7 @@ export async function VitalSignsSection({
                 </tr>
               </thead>
               <tbody>
-                {data.serving.byCampus.map((campus) => (
+                {servingRows.map((campus) => (
                   <tr key={campus.campusId}>
                     <td>{campus.campusName}</td>
                     <td className="text-right tabular-nums">
@@ -199,7 +258,7 @@ export async function VitalSignsSection({
 
       <section className="space-y-4">
         <SectionHeading title="Small Groups" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="sfdc-grid sfdc-grid--2">
           <VitalSignCard
             title="% Participating in a Small Group"
             reading={data.groups.participationPct}

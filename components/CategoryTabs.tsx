@@ -26,13 +26,16 @@ export function CategoryTabs({ allowedSections }: CategoryTabsProps) {
   }
 
   return (
-    <div role="tablist" className="tabs tabs-boxed bg-base-200 p-1 flex-wrap">
+    <div role="tablist" className="sfdc-scoped-nav" aria-label="Dashboard views">
       {allowedSections.map((section) => (
         <button
           key={section}
           type="button"
           role="tab"
-          className={`tab ${current === section ? "tab-active" : ""}`}
+          aria-selected={current === section}
+          className={`sfdc-scoped-nav__tab${
+            current === section ? " sfdc-scoped-nav__tab--active" : ""
+          }`}
           onClick={() => setSection(section)}
         >
           {VIEW_SECTION_LABELS[section]}

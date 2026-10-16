@@ -7,6 +7,7 @@ import { CHMS_ENABLED } from "@/lib/feature-flags";
 const LINKS = [
   { href: "/dashboard", label: "Dashboard", match: "/dashboard" },
   { href: "/volunteer-matrix", label: "Volunteer Matrix", match: "/volunteer-matrix" },
+  { href: "/monthly-expenses", label: "Monthly Expenses", match: "/monthly-expenses" },
   ...(CHMS_ENABLED
     ? [{ href: "/chms", label: "ChMS", match: "/chms" } as const]
     : []),

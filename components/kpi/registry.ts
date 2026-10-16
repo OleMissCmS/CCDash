@@ -9,9 +9,15 @@ import {
   StatKpiCard,
   StripeKpiCard,
   TileKpiCard,
+  SalesforceKpiCard,
 } from "./variants";
 
 export const KPI_CARD_STYLES: KpiCardStyleMeta[] = [
+  {
+    id: "salesforce",
+    name: "Salesforce",
+    tagline: "Lightning-style widget with large metric and benchmark footer.",
+  },
   {
     id: "classic",
     name: "Classic",
@@ -63,6 +69,7 @@ const COMPONENTS: Record<KpiCardStyleId, ComponentType<KpiCardRenderProps>> = {
   split: SplitKpiCard,
   tile: TileKpiCard,
   bar: BarKpiCard,
+  salesforce: SalesforceKpiCard,
 };
 
 export function getKpiCardComponent(

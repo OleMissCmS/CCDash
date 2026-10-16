@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserProfile } from "@/lib/metrics";
 import { canEditBenchmarks } from "@/lib/permissions";
 import type { Metric } from "@/lib/types";
+import { DEFAULT_FISCAL_YEAR } from "@/lib/types";
 
 const SAMPLE_METRICS: Metric[] = [
   {
@@ -52,14 +53,14 @@ function buildSamples(): KpiCardRenderProps[] {
       metric: SAMPLE_METRICS[0],
       value: 2185,
       benchmark: 2400,
-      subtitle: "FY25/26 · All campuses",
+      subtitle: `${DEFAULT_FISCAL_YEAR} · All campuses`,
       higherIsBetter: true,
     },
     {
       metric: SAMPLE_METRICS[1],
       value: 4_995_838,
       benchmark: 5_200_000,
-      subtitle: "FY25/26 · Church-wide",
+      subtitle: `${DEFAULT_FISCAL_YEAR} · Church-wide`,
       higherIsBetter: true,
     },
     {

@@ -1,5 +1,6 @@
 import { BenchmarkGauge } from "@/components/BenchmarkGauge";
 import { formatValue } from "@/lib/format";
+import { SfdcWidget } from "@/components/sfdc/SfdcWidget";
 import type { KpiCardRenderProps } from "./types";
 import { StoplightBadge } from "@/components/Stoplight";
 import {
@@ -15,48 +16,57 @@ import {
 } from "./shared";
 
 export function EdgyGaugeKpiCard(props: KpiCardRenderProps) {
-  const { metric, value, benchmark, stoplight, benchmarkLabel, subtitle } =
-    props;
+  const {
+    metric,
+    value,
+    benchmark,
+    stoplight,
+    benchmarkLabel,
+    subtitle,
+    headerAction,
+    budgetPaceGauge,
+  } = props;
   const showGauge = benchmark != null && stoplight != null;
-  const border =
-    stoplight != null
-      ? `border-l-[5px] ${STATUS_BORDER[stoplight.status]}`
-      : "border-l-[5px] border-l-base-content/20";
 
   return (
-    <div
-      className={`rounded-sm bg-base-100 border border-base-300 shadow-sm overflow-hidden ring-1 ring-base-content/5 ${border}`}
+    <SfdcWidget
+      title={metric.label}
+      className="sfdc-kpi-card"
+      headerAction={
+        headerAction || stoplight ? (
+          <div className="flex items-center gap-2">
+            {headerAction}
+            {stoplight ? (
+              <StoplightBadge status={stoplight.status} label={stoplight.label} />
+            ) : null}
+          </div>
+        ) : undefined
+      }
     >
-      <div className="px-4 pt-4 pb-2 flex items-start justify-between gap-2">
-        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-base-content/55">
-          {metric.label}
-        </p>
-        {stoplight && (
-          <StoplightBadge status={stoplight.status} label={stoplight.label} />
-        )}
-      </div>
-
-      <div className="px-4 pb-2">
-        <p className="text-3xl font-bold tabular-nums tracking-tight leading-none">
-          {formatValue(value, metric.unit)}
-        </p>
-      </div>
-
+      <p className="sfdc-kpi-value">{formatValue(value, metric.unit)}</p>
       {benchmark != null && (
-        <div className="px-4 pb-2">
-          <p className="text-xs text-base-content/60">
-            Target {formatValue(benchmark, metric.unit)}
-            {benchmarkLabel ? ` · ${benchmarkLabel}` : ""}
-          </p>
+        <p className="sfdc-kpi-meta">
+          Target {formatValue(benchmark, metric.unit)}
+          {benchmarkLabel ? ` · ${benchmarkLabel}` : ""}
+        </p>
+      )}
+      {subtitle && <p className="sfdc-kpi-meta">{subtitle}</p>}
+      {budgetPaceGauge && (
+        <div className="mt-3 border-t border-[var(--sfdc-border)] pt-3">
+          {budgetPaceGauge.meta && (
+            <p className="sfdc-kpi-meta mb-2">{budgetPaceGauge.meta}</p>
+          )}
+          <BenchmarkGauge
+            percentOfBenchmark={budgetPaceGauge.percentOfBudget}
+            status={budgetPaceGauge.status}
+            label={budgetPaceGauge.label}
+            variant="edgy"
+            subcaption={budgetPaceGauge.subcaption ?? "of annual budget"}
+          />
         </div>
       )}
-
-      {subtitle && (
-        <p className="px-4 pb-2 text-[11px] text-base-content/50">{subtitle}</p>
-      )}
-
       {showGauge && stoplight && (
-        <div className="px-4 pb-4 pt-1 border-t border-base-300/70 bg-base-200/30">
+        <div className="mt-3 border-t border-[var(--sfdc-border)] pt-3">
           <BenchmarkGauge
             percentOfBenchmark={stoplight.percentOfBenchmark}
             status={stoplight.status}
@@ -65,7 +75,7 @@ export function EdgyGaugeKpiCard(props: KpiCardRenderProps) {
           />
         </div>
       )}
-    </div>
+    </SfdcWidget>
   );
 }
 
@@ -75,29 +85,29 @@ export function ClassicKpiCard(props: KpiCardRenderProps) {
   const showGauge = benchmark != null && stoplight != null;
 
   return (
-    <div className="card bg-base-100 shadow-sm border border-base-300">
-      <div className="card-body p-4 gap-2">
-        <div className="flex items-start justify-between gap-2">
-          <KpiLabel metric={metric} />
-          <KpiStoplightDot stoplight={stoplight} />
-        </div>
-        <KpiValue metric={metric} value={value} />
-        <KpiBenchmarkRow
-          benchmark={benchmark}
-          metric={metric}
-          benchmarkLabel={benchmarkLabel}
-          stoplight={stoplight}
-        />
-        <KpiSubtitle subtitle={subtitle} />
-        {showGauge && stoplight && (
+    <SfdcWidget
+      title={metric.label}
+      className="sfdc-kpi-card"
+      headerAction={<KpiStoplightDot stoplight={stoplight} />}
+    >
+      <KpiValue metric={metric} value={value} />
+      <KpiBenchmarkRow
+        benchmark={benchmark}
+        metric={metric}
+        benchmarkLabel={benchmarkLabel}
+        stoplight={stoplight}
+      />
+      <KpiSubtitle subtitle={subtitle} />
+      {showGauge && stoplight && (
+        <div className="mt-3 border-t border-[var(--sfdc-border)] pt-3">
           <BenchmarkGauge
             percentOfBenchmark={stoplight.percentOfBenchmark}
             status={stoplight.status}
             label={stoplight.label}
           />
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </SfdcWidget>
   );
 }
 
@@ -290,35 +300,57 @@ export function BarKpiCard(props: KpiCardRenderProps) {
     props;
   const pct = stoplight?.percentOfBenchmark ?? benchmarkPercent(value, benchmark);
   const barClass =
-    stoplight != null ? STATUS_BAR[stoplight.status] : "bg-primary/40";
+    stoplight != null ? STATUS_BAR[stoplight.status] : "bg-[var(--sfdc-brand)]/50";
 
   return (
-    <div className="card bg-base-100 border border-base-300 shadow-sm">
-      <div className="card-body p-4 gap-3">
-        <div className="flex items-start justify-between gap-2">
-          <KpiLabel metric={metric} />
-          <KpiStoplightDot stoplight={stoplight} />
-        </div>
-        <KpiValue metric={metric} value={value} />
-        {benchmark != null && (
-          <div className="space-y-1.5">
-            <div className="h-2 w-full rounded-full bg-base-300/60 overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${barClass}`}
-                style={{ width: `${Math.min(100, pct)}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-[11px] text-base-content/60">
-              <span>
-                {formatValue(benchmark, metric.unit)} target
-                {benchmarkLabel ? ` · ${benchmarkLabel}` : ""}
-              </span>
-              <span>{Math.round(pct)}%</span>
-            </div>
+    <SfdcWidget
+      title={metric.label}
+      className="sfdc-kpi-card"
+      headerAction={<KpiStoplightDot stoplight={stoplight} />}
+    >
+      <KpiValue metric={metric} value={value} />
+      {benchmark != null && (
+        <div className="mt-2 space-y-1.5">
+          <div className="h-2 w-full rounded-full bg-[var(--sfdc-border)] overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${barClass}`}
+              style={{ width: `${Math.min(100, pct)}%` }}
+            />
           </div>
-        )}
-        <KpiSubtitle subtitle={subtitle} />
-      </div>
-    </div>
+          <div className="flex justify-between text-[11px] text-[var(--sfdc-text-weak)]">
+            <span>
+              {formatValue(benchmark, metric.unit)} target
+              {benchmarkLabel ? ` · ${benchmarkLabel}` : ""}
+            </span>
+            <span>{Math.round(pct)}%</span>
+          </div>
+        </div>
+      )}
+      <KpiSubtitle subtitle={subtitle} />
+    </SfdcWidget>
+  );
+}
+
+export function SalesforceKpiCard(props: KpiCardRenderProps) {
+  const { metric, value, benchmark, stoplight, benchmarkLabel, subtitle } =
+    props;
+
+  return (
+    <SfdcWidget title={metric.label} className="sfdc-kpi-card">
+      <p className="sfdc-kpi-value">{formatValue(value, metric.unit)}</p>
+      {benchmark != null && (
+        <p className="sfdc-kpi-meta">
+          Target {formatValue(benchmark, metric.unit)}
+          {benchmarkLabel ? ` · ${benchmarkLabel}` : ""}
+        </p>
+      )}
+      {stoplight && (
+        <p className="sfdc-kpi-status">
+          <StoplightBadge status={stoplight.status} label={stoplight.label} />
+          <span>{Math.round(stoplight.percentOfBenchmark)}% of benchmark</span>
+        </p>
+      )}
+      {subtitle && <p className="sfdc-kpi-meta">{subtitle}</p>}
+    </SfdcWidget>
   );
 }

@@ -1,6 +1,8 @@
+import type { ReactNode } from "react";
 import type { StoplightResult } from "@/lib/benchmarks";
 import type { Metric } from "@/lib/types";
 import { EdgyGaugeKpiCard } from "@/components/kpi/variants";
+import type { BudgetPaceGaugeProps } from "@/components/kpi/types";
 
 type KpiCardProps = {
   metric: Metric;
@@ -11,6 +13,8 @@ type KpiCardProps = {
   benchmarkLabel?: string | null;
   subtitle?: string;
   showAnnualTargets?: boolean;
+  headerAction?: React.ReactNode;
+  budgetPaceGauge?: BudgetPaceGaugeProps | null;
 };
 
 export function KpiCard({
@@ -20,6 +24,8 @@ export function KpiCard({
   stoplight,
   benchmarkLabel,
   subtitle,
+  headerAction,
+  budgetPaceGauge,
 }: KpiCardProps) {
   return (
     <EdgyGaugeKpiCard
@@ -29,6 +35,8 @@ export function KpiCard({
       stoplight={stoplight}
       benchmarkLabel={benchmarkLabel}
       subtitle={subtitle}
+      headerAction={headerAction}
+      budgetPaceGauge={budgetPaceGauge}
     />
   );
 }

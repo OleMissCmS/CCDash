@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { VIEW_SECTION_LABELS, VIEW_SECTIONS } from "@/lib/sections";
-import { canEditBenchmarks } from "@/lib/permissions";
+import { CAMPUS_ACCESS_OPTIONS, canEditBenchmarks } from "@/lib/permissions";
 import type { ManagedUser } from "@/lib/types";
 import { UserEditModal } from "./UserEditModal";
 
@@ -23,8 +23,23 @@ function summarizeAccess(user: ManagedUser): string {
     return user.can_view_operations;
   }).map((section) => VIEW_SECTION_LABELS[section]);
 
-  const extras = canEditBenchmarks(user) ? ["Edit benchmarks"] : [];
-  return [...pages, ...extras].join(" · ") || "No access";
+  const extras = [
+    ...(user.can_view_volunteer_matrix ? ["Volunteer Matrix"] : []),
+    ...(canEditBenchmarks(user) ? ["Edit benchmarks"] : []),
+  ];
+  const campus =
+    user.campus_access.length === CAMPUS_ACCESS_OPTIONS.length
+      ? []
+      : [
+          `Campus: ${
+            CAMPUS_ACCESS_OPTIONS.filter((option) =>
+              user.campus_access.includes(option.value)
+            )
+              .map((option) => option.label)
+              .join(", ") || "none"
+          }`,
+        ];
+  return [...campus, ...pages, ...extras].join(" · ") || "No access";
 }
 
 export function UserList({ users }: UserListProps) {

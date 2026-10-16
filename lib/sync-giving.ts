@@ -111,6 +111,16 @@ function buildSnapshotRows(
       value: roundCurrency(campus.giving),
       source,
     });
+    rows.push({
+      campus_id: campusIds[slug],
+      metric_id: metricIds.giving_previous_month,
+      period_start: month.periodStart,
+      period_type: "monthly",
+      fiscal_year: null,
+      calendar_year: null,
+      value: roundCurrency(campus.giving),
+      source,
+    });
   }
 
   return rows;

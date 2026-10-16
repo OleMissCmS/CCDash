@@ -1,11 +1,13 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { AppTopNav } from "@/components/AppTopNav";
 import { Navbar } from "@/components/Navbar";
+import { SfdcDashboardHeader } from "@/components/sfdc/SfdcDashboardHeader";
+import { SfdcRefreshButton } from "@/components/sfdc/SfdcRefreshButton";
 import { VolunteerMatrixNeedSummary } from "@/components/VolunteerMatrixNeedSummary";
 import { VolunteerMatrixPageFilters } from "@/components/VolunteerMatrixCampusFilter";
 import { VolunteerMatrixSection } from "@/components/VolunteerMatrixSection";
 import { getCampuses, getUserProfile } from "@/lib/metrics";
+import { campusScope, canViewVolunteerMatrix } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { resolveVolunteerMatrixMinistryAreaSlug } from "@/lib/volunteer-matrix-areas";
 import {
@@ -28,12 +30,21 @@ export default async function VolunteerMatrixPage({
   const profile = await getUserProfile(supabase);
 
   if (!profile) redirect("/login");
+  if (!canViewVolunteerMatrix(profile)) redirect("/dashboard");
 
   const campuses = await getCampuses(supabase);
-  const campusSlug = resolveVolunteerMatrixCampusSlug(
+  const scope = campusScope(profile);
+  const allowedCampusSlugs = scope.full ? null : scope.campusSlugs;
+  const requestedCampusSlug = resolveVolunteerMatrixCampusSlug(
     campuses,
     params.campus ?? null
   );
+  const campusSlug =
+    allowedCampusSlugs == null
+      ? requestedCampusSlug
+      : requestedCampusSlug && allowedCampusSlugs.includes(requestedCampusSlug)
+        ? requestedCampusSlug
+        : allowedCampusSlugs[0];
   const ministryAreaSlug = resolveVolunteerMatrixMinistryAreaSlug(
     params.ministry ?? null
   );
@@ -43,24 +54,23 @@ export default async function VolunteerMatrixPage({
     <>
       <Navbar profile={profile} />
 
-      <main className="mx-auto w-full max-w-7xl flex-1 p-4 md:p-8 space-y-8">
-        <header className="space-y-4">
-          <AppTopNav />
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div className="space-y-1">
-              <h1 className="text-2xl font-semibold tracking-tight">
-                Campus volunteer matrix
-              </h1>
-              <p className="text-sm text-base-content/70">
-                Pool filled and staffing need vs current count · from Google
-                Sheets
-              </p>
-            </div>
-            <Suspense fallback={null}>
-              <VolunteerMatrixPageFilters />
-            </Suspense>
-          </div>
-        </header>
+      <main className="sfdc-page space-y-4">
+        <SfdcDashboardHeader
+          breadcrumb="Volunteer Matrix"
+          title="Campus volunteer matrix"
+          description="Pool filled and staffing need vs current count from Google Sheets."
+          actions={
+            <>
+              <Suspense fallback={null}>
+                <VolunteerMatrixPageFilters
+                  selectedCampusSlug={campusSlug}
+                  allowedCampusSlugs={allowedCampusSlugs}
+                />
+              </Suspense>
+              <SfdcRefreshButton />
+            </>
+          }
+        />
 
         <VolunteerMatrixNeedSummary
           summaries={data.areaSummaries}

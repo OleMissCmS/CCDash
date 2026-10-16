@@ -40,8 +40,12 @@ export function UserEditModal({ user, open, onClose }: UserEditModalProps) {
     e.preventDefault();
     if (!user) return;
 
-    setLoading(true);
     setError(null);
+    if (role === "staff" && permissions.campus_access.length === 0) {
+      setError("Select at least one campus access option.");
+      return;
+    }
+    setLoading(true);
 
     const response = await fetch(`/api/admin/users/${user.id}`, {
       method: "PATCH",

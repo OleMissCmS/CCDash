@@ -13,11 +13,16 @@ import {
   YAxis,
 } from "recharts";
 import { formatValue } from "@/lib/format";
+import { SfdcWidget } from "@/components/sfdc/SfdcWidget";
 import {
+  ATTENDANCE_CALENDAR_YEAR_SERIES,
   GIVING_CAMPUS_CHART_SERIES,
+  KIDS_CALENDAR_YEAR_SERIES,
+  type AttendanceCalendarYearTrendPoint,
   type AttendanceMonthlyTrendPoint,
   type GivingMonthlyTrendPoint,
   type GivingVsExpensesPoint,
+  type KidsCalendarYearTrendPoint,
 } from "@/lib/metrics";
 import type { MetricSnapshot } from "@/lib/types";
 
@@ -41,25 +46,18 @@ export function TrendChart({ data, title, subtitle }: TrendChartProps) {
 
   if (chartData.length === 0) {
     return (
-      <div className="card bg-base-100 border border-base-300 shadow-sm">
-        <div className="card-body">
-          <h3 className="card-title text-base">{title}</h3>
-          <p className="text-sm text-base-content/60">No trend data yet.</p>
-        </div>
-      </div>
+      <SfdcWidget title={title}>
+        <p className="text-sm text-base-content/60">No trend data yet.</p>
+      </SfdcWidget>
     );
   }
 
   return (
-    <div className="card bg-base-100 border border-base-300 shadow-sm">
-      <div className="card-body">
-        <div>
-          <h3 className="card-title text-base">{title}</h3>
-          {subtitle && (
-            <p className="text-sm text-base-content/60">{subtitle}</p>
-          )}
-        </div>
-        <div className="h-64 w-full">
+    <SfdcWidget title={title}>
+      {subtitle && (
+        <p className="sfdc-metric-subtitle mb-3 -mt-1">{subtitle}</p>
+      )}
+      <div className="h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
@@ -80,15 +78,143 @@ export function TrendChart({ data, title, subtitle }: TrendChartProps) {
                 type="monotone"
                 dataKey="value"
                 name="Avg attendance"
-                stroke="oklch(0.52 0.12 250)"
+                stroke="var(--sfdc-brand)"
                 strokeWidth={2}
                 dot={{ r: 3 }}
               />
             </LineChart>
           </ResponsiveContainer>
         </div>
+    </SfdcWidget>
+  );
+}
+
+type CalendarYearTrendChartProps = {
+  data: AttendanceCalendarYearTrendPoint[];
+  title: string;
+  subtitle?: string;
+  series: ReadonlyArray<{
+    year: number;
+    label: string;
+    color: string;
+  }>;
+  emptyMessage: string;
+};
+
+function CalendarYearTrendChart({
+  data,
+  title,
+  subtitle,
+  series,
+  emptyMessage,
+}: CalendarYearTrendChartProps) {
+  const activeYears = series.filter((yearSeries) =>
+    data.some((point) => point.byYear[yearSeries.year] != null)
+  );
+
+  const chartData = data.map((point) => {
+    const row: Record<string, string | number | null> = {
+      label: point.label,
+    };
+
+    for (const yearSeries of series) {
+      row[String(yearSeries.year)] = point.byYear[yearSeries.year] ?? null;
+    }
+
+    return row;
+  });
+
+  if (activeYears.length === 0) {
+    return (
+      <SfdcWidget title={title}>
+        <p className="text-sm text-base-content/60">{emptyMessage}</p>
+      </SfdcWidget>
+    );
+  }
+
+  return (
+    <SfdcWidget title={title}>
+      {subtitle && (
+        <p className="sfdc-metric-subtitle mb-3 -mt-1">{subtitle}</p>
+      )}
+      <div className="h-64 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+            <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+            <YAxis
+              tick={{ fontSize: 12 }}
+              tickFormatter={(value) => formatValue(Number(value), "people")}
+              width={56}
+            />
+            <Tooltip
+              formatter={(value, name) => [
+                value == null ? "—" : formatValue(Number(value), "people"),
+                name,
+              ]}
+              labelFormatter={(label) => `Month: ${label}`}
+            />
+            <Legend />
+            {activeYears.map((series) => (
+              <Line
+                key={series.year}
+                type="monotone"
+                dataKey={String(series.year)}
+                name={series.label}
+                stroke={series.color}
+                strokeWidth={2.5}
+                dot={{ r: 3, strokeWidth: 2, fill: series.color }}
+                connectNulls={false}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
       </div>
-    </div>
+    </SfdcWidget>
+  );
+}
+
+type AttendanceCalendarYearTrendChartProps = {
+  data: AttendanceCalendarYearTrendPoint[];
+  title: string;
+  subtitle?: string;
+};
+
+export function AttendanceCalendarYearTrendChart({
+  data,
+  title,
+  subtitle,
+}: AttendanceCalendarYearTrendChartProps) {
+  return (
+    <CalendarYearTrendChart
+      data={data}
+      title={title}
+      subtitle={subtitle}
+      series={ATTENDANCE_CALENDAR_YEAR_SERIES}
+      emptyMessage="No attendance data yet."
+    />
+  );
+}
+
+type KidsCalendarYearTrendChartProps = {
+  data: KidsCalendarYearTrendPoint[];
+  title: string;
+  subtitle?: string;
+};
+
+export function KidsCalendarYearTrendChart({
+  data,
+  title,
+  subtitle,
+}: KidsCalendarYearTrendChartProps) {
+  return (
+    <CalendarYearTrendChart
+      data={data}
+      title={title}
+      subtitle={subtitle}
+      series={KIDS_CALENDAR_YEAR_SERIES}
+      emptyMessage="No kids attendance data yet."
+    />
   );
 }
 
@@ -125,15 +251,11 @@ export function CampusCompareChart({
   }));
 
   return (
-    <div className="card bg-base-100 border border-base-300 shadow-sm">
-      <div className="card-body">
-        <div>
-          <h3 className="card-title text-base">{title}</h3>
-          {subtitle && (
-            <p className="text-sm text-base-content/60">{subtitle}</p>
-          )}
-        </div>
-        <div className="h-64 w-full">
+    <SfdcWidget title={title}>
+      {subtitle && (
+        <p className="sfdc-metric-subtitle mb-3 -mt-1">{subtitle}</p>
+      )}
+      <div className="h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
@@ -153,22 +275,21 @@ export function CampusCompareChart({
               <Bar
                 dataKey="value"
                 name={valueLabel}
-                fill="oklch(0.52 0.12 250)"
+                fill="var(--sfdc-brand)"
                 radius={[4, 4, 0, 0]}
               />
               {hasComparison && (
                 <Bar
                   dataKey="comparison"
                   name={comparisonLabel}
-                  fill="oklch(0.52 0.17 25)"
+                  fill="#fe9339"
                   radius={[4, 4, 0, 0]}
                 />
               )}
             </BarChart>
           </ResponsiveContainer>
         </div>
-      </div>
-    </div>
+    </SfdcWidget>
   );
 }
 
@@ -201,27 +322,20 @@ export function GivingMonthlyChart({
 
   if (chartData.length === 0) {
     return (
-      <div className="card bg-base-100 border border-base-300 shadow-sm">
-        <div className="card-body">
-          <h3 className="card-title text-base">{title}</h3>
-          <p className="text-sm text-base-content/60">
-            No giving data yet for the last 12 months.
-          </p>
-        </div>
-      </div>
+      <SfdcWidget title={title}>
+        <p className="text-sm text-base-content/60">
+          No giving data yet for the current fiscal year.
+        </p>
+      </SfdcWidget>
     );
   }
 
   return (
-    <div className="card bg-base-100 border border-base-300 shadow-sm">
-      <div className="card-body">
-        <div>
-          <h3 className="card-title text-base">{title}</h3>
-          {subtitle && (
-            <p className="text-sm text-base-content/60">{subtitle}</p>
-          )}
-        </div>
-        <div className="h-72 w-full">
+    <SfdcWidget title={title}>
+      {subtitle && (
+        <p className="sfdc-metric-subtitle mb-3 -mt-1">{subtitle}</p>
+      )}
+      <div className="h-72 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
@@ -251,8 +365,7 @@ export function GivingMonthlyChart({
             </BarChart>
           </ResponsiveContainer>
         </div>
-      </div>
-    </div>
+    </SfdcWidget>
   );
 }
 
@@ -281,47 +394,40 @@ export function GivingVsExpensesChart({
 
   if (chartData.length === 0) {
     return (
-      <div className="card bg-base-100 border border-base-300 shadow-sm">
-        <div className="card-body">
-          <h3 className="card-title text-base">{title}</h3>
-          <p className="text-sm text-base-content/60">
-            No giving or expense data yet for the last 12 months.
-          </p>
-        </div>
-      </div>
+      <SfdcWidget title={title}>
+        <p className="text-sm text-base-content/60">
+          No giving or expense data yet for the current fiscal year.
+        </p>
+      </SfdcWidget>
     );
   }
 
   return (
-    <div className="card bg-base-100 border border-base-300 shadow-sm">
-      <div className="card-body">
-        <div>
-          <h3 className="card-title text-base">{title}</h3>
-          {subtitle && (
-            <p className="text-sm text-base-content/60">{subtitle}</p>
-          )}
-          {latest && (
-            <p className="text-sm text-base-content/70 mt-1">
-              Latest month:{" "}
-              <span className="font-medium text-success">
-                {formatValue(latest.giving, "currency")} giving
-              </span>
-              {" · "}
-              <span className="font-medium text-error">
-                {formatValue(latest.expenses, "currency")} expenses
-              </span>
-              {" · "}
-              <span
-                className={
-                  latest.net >= 0 ? "font-medium text-success" : "font-medium text-error"
-                }
-              >
-                {formatValue(latest.net, "currency")} net
-              </span>
-            </p>
-          )}
-        </div>
-        <div className="h-72 w-full">
+    <SfdcWidget title={title}>
+      {subtitle && (
+        <p className="sfdc-metric-subtitle mb-2 -mt-1">{subtitle}</p>
+      )}
+      {latest && (
+        <p className="text-sm text-base-content/70 mb-3">
+          Latest month:{" "}
+          <span className="font-medium text-success">
+            {formatValue(latest.giving, "currency")} giving
+          </span>
+          {" · "}
+          <span className="font-medium text-error">
+            {formatValue(latest.expenses, "currency")} expenses
+          </span>
+          {" · "}
+          <span
+            className={
+              latest.net >= 0 ? "font-medium text-success" : "font-medium text-error"
+            }
+          >
+            {formatValue(latest.net, "currency")} net
+          </span>
+        </p>
+      )}
+      <div className="h-72 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
@@ -354,7 +460,6 @@ export function GivingVsExpensesChart({
             </BarChart>
           </ResponsiveContainer>
         </div>
-      </div>
-    </div>
+    </SfdcWidget>
   );
 }

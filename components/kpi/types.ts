@@ -1,5 +1,13 @@
-import type { StoplightResult } from "@/lib/benchmarks";
+import type { StoplightResult, StoplightStatus } from "@/lib/benchmarks";
 import type { Metric } from "@/lib/types";
+
+export type BudgetPaceGaugeProps = {
+  percentOfBudget: number;
+  status: StoplightStatus;
+  label: string;
+  subcaption?: string | null;
+  meta?: string | null;
+};
 
 export type KpiCardRenderProps = {
   metric: Metric;
@@ -8,6 +16,8 @@ export type KpiCardRenderProps = {
   stoplight?: StoplightResult | null;
   benchmarkLabel?: string | null;
   subtitle?: string;
+  headerAction?: React.ReactNode;
+  budgetPaceGauge?: BudgetPaceGaugeProps | null;
 };
 
 export type KpiCardStyleId =
@@ -18,7 +28,8 @@ export type KpiCardStyleId =
   | "hero"
   | "split"
   | "tile"
-  | "bar";
+  | "bar"
+  | "salesforce";
 
 export type KpiCardStyleMeta = {
   id: KpiCardStyleId;

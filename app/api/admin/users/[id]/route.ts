@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireUserManager } from "@/lib/admin-auth";
-import { ADMIN_PERMISSIONS } from "@/lib/permissions";
+import {
+  ADMIN_PERMISSIONS,
+  ALL_CAMPUS_ACCESS,
+  normalizeCampusAccess,
+} from "@/lib/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { UserProfile } from "@/lib/types";
 
@@ -48,9 +52,21 @@ export async function PATCH(
       financial_insights: true,
       can_access_chms: true,
       can_manage_chms_processes: true,
+      can_view_monthly_expenses: true,
+      monthly_expenses_scope: "all",
     });
   } else {
     const permissions = body.permissions ?? {};
+    const campusAccess =
+      permissions.campus_access === undefined
+        ? ALL_CAMPUS_ACCESS
+        : normalizeCampusAccess(permissions.campus_access);
+    if (campusAccess.length === 0) {
+      return NextResponse.json(
+        { error: "Select at least one campus access option" },
+        { status: 400 }
+      );
+    }
     Object.assign(updates, {
       role: "staff",
       can_view_overview: permissions.can_view_overview ?? true,
@@ -59,6 +75,13 @@ export async function PATCH(
       can_view_next_gen: permissions.can_view_next_gen ?? true,
       can_view_weekend_reach: permissions.can_view_weekend_reach ?? true,
       can_view_operations: permissions.can_view_operations ?? false,
+      can_view_monthly_expenses:
+        permissions.can_view_monthly_expenses ??
+        permissions.can_view_operations ??
+        false,
+      monthly_expenses_scope: permissions.monthly_expenses_scope ?? "all",
+      can_view_volunteer_matrix: permissions.can_view_volunteer_matrix ?? true,
+      campus_access: campusAccess,
       can_edit_benchmarks: permissions.can_edit_benchmarks ?? false,
       can_access_chms: permissions.can_access_chms ?? true,
       can_manage_chms_processes: permissions.can_manage_chms_processes ?? false,
@@ -102,7 +125,7 @@ export async function PATCH(
       .update(updates)
       .eq("id", id)
       .select(
-        "id, display_name, role, financial_insights, can_view_overview, can_view_adult_discipleship, can_view_next_gen, can_view_weekend_reach, can_view_operations, can_edit_benchmarks, can_access_chms, can_manage_chms_processes"
+        "id, display_name, role, financial_insights, can_view_overview, can_view_adult_discipleship, can_view_next_gen, can_view_weekend_reach, can_view_operations, can_view_monthly_expenses, monthly_expenses_scope, can_view_volunteer_matrix, campus_access, can_edit_benchmarks, can_access_chms, can_manage_chms_processes"
       )
       .single();
 

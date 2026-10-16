@@ -12,6 +12,7 @@ import {
 } from "@/lib/benchmarks";
 import { getSnapshotValue } from "@/lib/metrics";
 import type { BenchmarkTarget, Campus, MetricSnapshot } from "@/lib/types";
+import { DEFAULT_FISCAL_YEAR } from "@/lib/types";
 import { StoplightBadge } from "./Stoplight";
 
 type BenchmarkRow = {
@@ -149,7 +150,6 @@ type BenchmarkComparisonTableProps = {
   targets: BenchmarkTarget[];
   snapshots: MetricSnapshot[];
   campuses: Campus[];
-  metricKeys?: string[] | null;
   campusId?: string | null;
 };
 
@@ -157,7 +157,6 @@ export function BenchmarkComparisonTable({
   targets,
   snapshots,
   campuses,
-  metricKeys = null,
   campusId = null,
 }: BenchmarkComparisonTableProps) {
   const [campusFilter, setCampusFilter] = useState("all");
@@ -174,17 +173,11 @@ export function BenchmarkComparisonTable({
     }
   }
 
-  const scopedTargets = useMemo(() => {
-    if (!metricKeys || metricKeys.length === 0) return targets;
-    const allowed = new Set(metricKeys);
-    return targets.filter((target) => target.metric && allowed.has(target.metric.key));
-  }, [targets, metricKeys]);
-
   const unsortedRows = useMemo(() => {
     const built: BenchmarkRow[] = [];
     const churchWideMetricKeys = new Set<string>();
 
-    for (const target of scopedTargets) {
+    for (const target of targets) {
       if (!target.metric) continue;
 
       if (effectiveCampusFilter === "church-wide") {
@@ -213,7 +206,7 @@ export function BenchmarkComparisonTable({
     // Church-wide aggregate rows (matches KPI card logic when viewing all campuses)
     if (effectiveCampusFilter === "all") {
       const targetsByMetric = new Map<string, BenchmarkTarget[]>();
-      for (const target of scopedTargets) {
+      for (const target of targets) {
         if (!target.metric) continue;
         const list = targetsByMetric.get(target.metric.key) ?? [];
         list.push(target);
@@ -243,7 +236,7 @@ export function BenchmarkComparisonTable({
     }
 
     return built;
-  }, [scopedTargets, snapshots, effectiveCampusFilter]);
+  }, [targets, snapshots, effectiveCampusFilter]);
 
   const rows = useMemo(
     () =>
@@ -253,50 +246,45 @@ export function BenchmarkComparisonTable({
     [unsortedRows, sortColumn, sortDirection]
   );
 
-  if (scopedTargets.length === 0) return null;
+  if (targets.length === 0) return null;
 
   return (
-    <div className="card bg-base-100 border border-base-300 shadow-sm">
-      <div className="card-body">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h3 className="card-title text-base">Benchmark comparison</h3>
-            <p className="text-sm text-base-content/60">
-              Green = at or above benchmark · Yellow = within 10% · Red = more
-              than 10% below · Click column headers to sort
-            </p>
-          </div>
-          {!campusId && (
-            <label className="form-control w-full sm:w-52">
-              <span className="label py-0 pb-1">
-                <span className="label-text text-xs font-medium uppercase tracking-wide">
-                  Campus
-                </span>
-              </span>
-              <select
-                className="select select-bordered select-sm w-full"
-                value={campusFilter}
-                onChange={(e) => setCampusFilter(e.target.value)}
-                aria-label="Filter benchmarks by campus"
-              >
-                <option value="all">All Benchmarks</option>
-                <option value="church-wide">Church-wide</option>
-                {campuses.map((campus) => (
-                  <option key={campus.id} value={campus.id}>
-                    {campus.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
+    <div className="sfdc-widget">
+      <div className="sfdc-widget__header">
+        <div>
+          <h3 className="sfdc-widget__title">Benchmark comparison</h3>
+          <p className="sfdc-metric-subtitle mt-1">
+            Green = at or above benchmark · Yellow = within 10% · Red = more
+            than 10% below
+          </p>
         </div>
-
+        {!campusId && (
+          <label className="sfdc-field shrink-0">
+            <span className="sfdc-field__label">Campus</span>
+            <select
+              className="sfdc-select"
+              value={campusFilter}
+              onChange={(e) => setCampusFilter(e.target.value)}
+              aria-label="Filter benchmarks by campus"
+            >
+              <option value="all">All Benchmarks</option>
+              <option value="church-wide">Church-wide</option>
+              {campuses.map((campus) => (
+                <option key={campus.id} value={campus.id}>
+                  {campus.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+      <div className="sfdc-widget__body">
         {rows.length === 0 ? (
-          <p className="text-sm text-base-content/60 mt-4">
+          <p className="text-sm text-base-content/60">
             No benchmarks match this campus filter.
           </p>
         ) : (
-          <div className="overflow-x-auto mt-2">
+          <div className="overflow-x-auto">
             <table className="table table-sm">
               <thead>
                 <tr>
@@ -321,7 +309,7 @@ export function BenchmarkComparisonTable({
                     direction={sortDirection}
                     onSort={handleSort}
                   />
-                  <th>Actual (FY25/26)</th>
+                  <th>Actual ({DEFAULT_FISCAL_YEAR})</th>
                   <th>Benchmark</th>
                   <th>% of benchmark</th>
                 </tr>

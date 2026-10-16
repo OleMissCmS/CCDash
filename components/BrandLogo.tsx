@@ -5,14 +5,24 @@ type BrandLogoProps = {
   showSubtitle?: boolean;
   href?: string | null;
   size?: "sm" | "md";
+  variant?: "default" | "light";
 };
 
 export function BrandLogo({
   showSubtitle = false,
   href = "/dashboard",
   size = "md",
+  variant = "default",
 }: BrandLogoProps) {
   const iconSize = size === "sm" ? 32 : 40;
+  const titleClass =
+    variant === "light"
+      ? "sfdc-logo-text truncate"
+      : `navbar-logo-text font-bold tracking-tight truncate ${
+          size === "sm" ? "text-sm" : "text-base"
+        }`;
+  const subtitleClass =
+    variant === "light" ? "sfdc-logo-sub truncate" : "navbar-logo-sub text-xs truncate";
 
   const content = (
     <div className="flex items-center gap-3 min-w-0">
@@ -27,18 +37,8 @@ export function BrandLogo({
         />
       </div>
       <div className="min-w-0 leading-tight">
-        <p
-          className={`navbar-logo-text font-bold tracking-tight truncate ${
-            size === "sm" ? "text-sm" : "text-base"
-          }`}
-        >
-          Community Church
-        </p>
-        {showSubtitle && (
-          <p className="navbar-logo-sub text-xs truncate">
-            Ministry dashboard
-          </p>
-        )}
+        <p className={titleClass}>Community Church</p>
+        {showSubtitle && <p className={subtitleClass}>Ministry dashboard</p>}
       </div>
     </div>
   );

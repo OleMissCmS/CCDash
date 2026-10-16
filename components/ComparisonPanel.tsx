@@ -43,14 +43,11 @@ export function ComparisonPanel({
     const chartData = buildCrossCampusChartData(snapshots, metrics, campuses);
 
     return (
-      <div className="card bg-base-100 border border-base-300 shadow-sm">
-        <div className="card-body gap-4">
-          <div>
-            <h3 className="font-semibold text-base">Cross-campus comparison</h3>
-            <p className="text-sm text-base-content/60">
-              All campuses side by side for metrics in this section.
-            </p>
-          </div>
+      <div className="sfdc-widget">
+        <div className="sfdc-widget__header">
+          <h3 className="sfdc-widget__title">Cross-campus comparison</h3>
+        </div>
+        <div className="sfdc-widget__body gap-4 flex flex-col">
 
           <div className="overflow-x-auto">
             <table className="table table-sm">
@@ -126,17 +123,13 @@ export function ComparisonPanel({
       ) ?? metrics[0];
 
     return (
-      <div className="card bg-base-100 border border-base-300 shadow-sm">
-        <div className="card-body gap-4">
-          <div>
-            <h3 className="font-semibold text-base">
-              {selectedCampus.name} vs church-wide
-            </h3>
-            <p className="text-sm text-base-content/60">
-              How this campus compares to the combined church total (or average
-              for percentage metrics).
-            </p>
-          </div>
+      <div className="sfdc-widget">
+        <div className="sfdc-widget__header">
+          <h3 className="sfdc-widget__title">
+            {selectedCampus.name} vs church-wide
+          </h3>
+        </div>
+        <div className="sfdc-widget__body gap-4 flex flex-col">
 
           <div className="overflow-x-auto">
             <table className="table table-sm">

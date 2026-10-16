@@ -3,6 +3,11 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import {
+  BENCHMARK_MINISTRY_AREAS,
+  defaultMinistryAreaForMetric,
+  VIEW_SECTION_LABELS,
+} from "@/lib/sections";
 import type { Campus, Metric } from "@/lib/types";
 import { FISCAL_YEAR_OPTIONS, TARGET_FISCAL_YEAR } from "@/lib/types";
 
@@ -14,6 +19,9 @@ type BenchmarkFormProps = {
 export function BenchmarkForm({ metrics, campuses }: BenchmarkFormProps) {
   const router = useRouter();
   const [metricId, setMetricId] = useState(metrics[0]?.id ?? "");
+  const [ministryArea, setMinistryArea] = useState<string>(
+    defaultMinistryAreaForMetric(metrics[0]?.key) ?? ""
+  );
   const [campusId, setCampusId] = useState("");
   const [targetValue, setTargetValue] = useState("");
   const [stretchValue, setStretchValue] = useState("");
@@ -34,6 +42,7 @@ export function BenchmarkForm({ metrics, campuses }: BenchmarkFormProps) {
       .from("benchmark_targets")
       .insert({
         metric_id: metricId,
+        ministry_area: ministryArea || null,
         campus_id: campusId || null,
         fiscal_year: fiscalYear,
         target_value: Number(targetValue),
@@ -73,7 +82,15 @@ export function BenchmarkForm({ metrics, campuses }: BenchmarkFormProps) {
             <select
               className="select select-bordered w-full"
               value={metricId}
-              onChange={(e) => setMetricId(e.target.value)}
+              onChange={(e) => {
+                const nextId = e.target.value;
+                setMetricId(nextId);
+                setMinistryArea(
+                  defaultMinistryAreaForMetric(
+                    metrics.find((m) => m.id === nextId)?.key
+                  ) ?? ""
+                );
+              }}
               required
             >
               {metrics.map((m) => (
@@ -81,6 +98,22 @@ export function BenchmarkForm({ metrics, campuses }: BenchmarkFormProps) {
                   {m.label}
                 </option>
               ))}
+            </select>
+          </label>
+
+          <label className="form-control w-full">
+            <span className="label-text">Ministry area</span>
+            <select
+              className="select select-bordered w-full"
+              value={ministryArea}
+              onChange={(e) => setMinistryArea(e.target.value)}
+            >
+              {BENCHMARK_MINISTRY_AREAS.map((area) => (
+                <option key={area} value={area}>
+                  {VIEW_SECTION_LABELS[area]}
+                </option>
+              ))}
+              <option value="">None</option>
             </select>
           </label>
 

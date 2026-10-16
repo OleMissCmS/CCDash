@@ -11,8 +11,11 @@ type BenchmarkGaugeProps = {
   status: StoplightStatus;
   label: string;
   variant?: "default" | "edgy";
+  size?: "default" | "large";
   /** Override arc subcaption; omit for default, pass null to hide. */
   subcaption?: string | null;
+  showLabel?: boolean;
+  className?: string;
 };
 
 export function BenchmarkGauge({
@@ -20,17 +23,23 @@ export function BenchmarkGauge({
   status,
   label,
   variant = "default",
+  size = "default",
   subcaption,
+  showLabel = true,
+  className = "",
 }: BenchmarkGaugeProps) {
   const edgy = variant === "edgy";
+  const large = size === "large";
   const fillPercent = Math.min(100, Math.max(0, percentOfBenchmark));
-  const radius = edgy ? 40 : 42;
-  const strokeWidth = edgy ? 10 : 8;
+  const radius = large ? 48 : edgy ? 40 : 42;
+  const strokeWidth = large ? 12 : edgy ? 10 : 8;
   const circumference = Math.PI * radius;
   const dashOffset = circumference * (1 - fillPercent / 100);
-  const arcPath = edgy
-    ? "M 16 58 A 40 40 0 0 1 104 58"
-    : "M 14 58 A 42 42 0 0 1 106 58";
+  const arcPath = large
+    ? "M 12 58 A 48 48 0 0 1 108 58"
+    : edgy
+      ? "M 16 58 A 40 40 0 0 1 104 58"
+      : "M 14 58 A 42 42 0 0 1 106 58";
   const arcSubcaption =
     subcaption === undefined
       ? edgy
@@ -40,7 +49,7 @@ export function BenchmarkGauge({
 
   return (
     <div
-      className={`flex flex-col items-center gap-1 ${edgy ? "pt-2" : "pt-1"}`}
+      className={`flex flex-col items-center gap-1 ${edgy ? "pt-2" : "pt-1"} ${className}`}
       role="meter"
       aria-valuenow={Math.round(fillPercent)}
       aria-valuemin={0}
@@ -49,10 +58,12 @@ export function BenchmarkGauge({
     >
       <svg
         viewBox="0 0 120 68"
-        className={`w-full h-auto ${edgy ? "max-w-[10rem]" : "max-w-[9rem]"}`}
+        className={`w-full h-auto ${
+          large ? "max-w-[11rem]" : edgy ? "max-w-[10rem]" : "max-w-[9rem]"
+        }`}
         aria-hidden
       >
-        {edgy && (
+        {edgy && !large && (
           <>
             <line
               x1="16"
@@ -94,18 +105,18 @@ export function BenchmarkGauge({
         />
         <text
           x="60"
-          y={edgy ? 48 : 50}
+          y={large ? 46 : edgy ? 48 : 50}
           textAnchor="middle"
           className="fill-base-content"
           style={{
-            fontSize: edgy ? "20px" : "18px",
-            fontWeight: edgy ? 700 : 600,
-            letterSpacing: edgy ? "-0.02em" : undefined,
+            fontSize: large ? "28px" : edgy ? "20px" : "18px",
+            fontWeight: edgy || large ? 700 : 600,
+            letterSpacing: edgy || large ? "-0.02em" : undefined,
           }}
         >
           {Math.round(percentOfBenchmark)}%
         </text>
-        {arcSubcaption != null && (
+        {arcSubcaption != null && !large && (
           <text
             x="60"
             y="64"
@@ -122,11 +133,18 @@ export function BenchmarkGauge({
           </text>
         )}
       </svg>
-      <span
-        className={`text-xs ${edgy ? "font-semibold uppercase tracking-wide text-base-content/50" : "text-base-content/60"}`}
-      >
-        {label}
-      </span>
+      {large && arcSubcaption != null && (
+        <p className="benchmark-gauge__subcaption">{arcSubcaption}</p>
+      )}
+      {showLabel && (
+        <span
+          className={`benchmark-gauge__label ${
+            edgy || large ? "benchmark-gauge__label--emphasized" : ""
+          }`}
+        >
+          {label}
+        </span>
+      )}
     </div>
   );
 }

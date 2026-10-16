@@ -1,12 +1,18 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchConnectEventsBaptisms } from "./google-sheets-connect-events";
+import { getConnectEventsBaptismsForCampus } from "./connect-events";
 import type { ConnectEventsBaptismSummary } from "./google-sheets-connect-events";
-import { getFiscalYearMonthlyBounds } from "./periods";
+import { getFiscalYearMonthlyBounds, getPreviousCalendarMonthStart } from "./periods";
 import {
   getAnnualSnapshots,
   getMonthlySnapshotsInRange,
 } from "./metrics";
 import { CALENDAR_YEAR } from "./periods";
+import {
+  buildAttendanceAggregates,
+  fetchParsedAttendanceYears,
+  type AttendanceCampusSlug,
+  type MonthlyAttendanceAggregate,
+} from "./google-sheets-attendance";
 import { fetchVolunteerMatrixCampuses } from "./google-sheets-volunteer-matrix";
 import type { VolunteerCampusSlug } from "./google-sheets-volunteer-matrix";
 import type { Campus } from "./types";
@@ -16,6 +22,7 @@ export type VitalSignReading = {
   value: number | null;
   subtitle?: string;
   hasData: boolean;
+  displayValue?: string;
 };
 
 export type CampusAttendanceReading = {
@@ -32,6 +39,8 @@ export type CampusKidsReading = {
   fiscalYear: VitalSignReading;
   monthlyPct: VitalSignReading;
   fiscalYearPct: VitalSignReading;
+  yearOverYearKids: VitalSignReading;
+  yearOverYearPct: VitalSignReading;
 };
 
 export type VitalSignsData = {
@@ -50,6 +59,8 @@ export type VitalSignsData = {
       fiscalYear: VitalSignReading;
       monthlyPct: VitalSignReading;
       fiscalYearPct: VitalSignReading;
+      yearOverYearKids: VitalSignReading;
+      yearOverYearPct: VitalSignReading;
     };
     byCampus: CampusKidsReading[];
   };
@@ -80,6 +91,48 @@ function formatMonthLabel(periodStart: string): string {
   return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
+function priorYearSameMonth(periodStart: string): string {
+  const date = new Date(`${periodStart}T12:00:00`);
+  const year = date.getFullYear() - 1;
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}-01`;
+}
+
+function formatYearOverYearChange(current: number, prior: number): string | null {
+  if (prior === 0) return null;
+  const pctChange = ((current - prior) / prior) * 100;
+  if (Math.abs(pctChange) < 0.05) return "No change";
+  const rounded = Math.abs(pctChange)
+    .toFixed(1)
+    .replace(/\.0$/, "");
+  return pctChange > 0
+    ? `${rounded}% increase`
+    : `${rounded}% decrease`;
+}
+
+function yearOverYearReading(
+  current: number | null,
+  prior: number | null,
+  priorMonthLabel: string,
+  formatPrior: (value: number) => string
+): VitalSignReading {
+  if (current == null || prior == null) {
+    return placeholderReading();
+  }
+
+  const displayValue = formatYearOverYearChange(current, prior);
+  if (!displayValue) {
+    return placeholderReading();
+  }
+
+  return {
+    value: ((current - prior) / prior) * 100,
+    hasData: true,
+    displayValue,
+    subtitle: `${formatPrior(prior)} · ${priorMonthLabel}`,
+  };
+}
+
 function kidsSharePct(kids: number, adults: number): number | null {
   const total = kids + adults;
   if (total <= 0) return null;
@@ -107,14 +160,138 @@ function placeholderReading(message = PLACEHOLDER_MESSAGE): VitalSignReading {
   return { value: null, hasData: false, subtitle: message };
 }
 
-function latestPeriodStart(
-  rows: Array<{ period_start: string }>
-): string | null {
-  if (rows.length === 0) return null;
-  return rows.reduce(
-    (latest, row) => (row.period_start > latest ? row.period_start : latest),
-    rows[0].period_start
+function attendanceCampusSlug(campus: Campus): AttendanceCampusSlug | null {
+  if (
+    campus.slug === "mount-pleasant" ||
+    campus.slug === "alma" ||
+    campus.slug === "st-johns"
+  ) {
+    return campus.slug;
+  }
+  return null;
+}
+
+function churchAttendanceValue(
+  targetMonth: string,
+  sheetMonth: MonthlyAttendanceAggregate | undefined,
+  attendanceMonthly: Array<{
+    period_start: string;
+    value: number;
+    campus_id: string | null;
+    source?: string;
+  }>,
+  campusId: string | null,
+  campusSlug: AttendanceCampusSlug | null
+): { value: number | null; fromSheets: boolean } {
+  if (campusSlug && sheetMonth?.campuses[campusSlug]?.total != null) {
+    return { value: sheetMonth.campuses[campusSlug].total, fromSheets: true };
+  }
+
+  if (!campusId && sheetMonth?.inPersonTotal != null) {
+    return { value: sheetMonth.inPersonTotal, fromSheets: true };
+  }
+
+  const dbValue = valueAtPeriod(attendanceMonthly, targetMonth, campusId);
+  const fromSheets = attendanceMonthly.some(
+    (row) =>
+      row.period_start === targetMonth &&
+      (campusId ? row.campus_id === campusId : row.campus_id == null) &&
+      row.source === "google_sheets"
   );
+
+  return { value: dbValue, fromSheets };
+}
+
+function campusKidsValue(
+  targetMonth: string,
+  sheetMonth: MonthlyAttendanceAggregate | undefined,
+  kidsMonthly: Array<{
+    period_start: string;
+    value: number;
+    campus_id: string | null;
+    source?: string;
+  }>,
+  campusId: string,
+  campusSlug: AttendanceCampusSlug | null
+): { value: number | null; fromSheets: boolean } {
+  if (campusSlug && sheetMonth?.campuses[campusSlug]?.kids != null) {
+    return { value: sheetMonth.campuses[campusSlug].kids, fromSheets: true };
+  }
+
+  if (
+    campusSlug &&
+    sheetMonth?.churchKidsTotal != null &&
+    sheetMonth.campuses[campusSlug]?.total != null &&
+    sheetMonth.inPersonTotal != null &&
+    sheetMonth.inPersonTotal > 0
+  ) {
+    const share =
+      sheetMonth.campuses[campusSlug].total / sheetMonth.inPersonTotal;
+    return {
+      value: sheetMonth.churchKidsTotal * share,
+      fromSheets: true,
+    };
+  }
+
+  const dbValue = valueAtPeriod(kidsMonthly, targetMonth, campusId);
+  const fromSheets = kidsMonthly.some(
+    (row) =>
+      row.period_start === targetMonth &&
+      row.campus_id === campusId &&
+      row.source === "google_sheets"
+  );
+
+  return { value: dbValue, fromSheets };
+}
+
+function churchKidsValue(
+  targetMonth: string,
+  sheetMonth: MonthlyAttendanceAggregate | undefined,
+  kidsMonthly: Array<{
+    period_start: string;
+    value: number;
+    campus_id: string | null;
+    source?: string;
+  }>
+): { value: number | null; fromSheets: boolean } {
+  if (sheetMonth?.churchKidsTotal != null) {
+    return { value: sheetMonth.churchKidsTotal, fromSheets: true };
+  }
+
+  const dbValue = valueAtPeriod(kidsMonthly, targetMonth, null);
+  const fromSheets = kidsMonthly.some(
+    (row) =>
+      row.period_start === targetMonth &&
+      row.campus_id == null &&
+      row.source === "google_sheets"
+  );
+
+  return { value: dbValue, fromSheets };
+}
+
+function churchAdultsValue(
+  targetMonth: string,
+  sheetMonth: MonthlyAttendanceAggregate | undefined,
+  adultsMonthly: Array<{
+    period_start: string;
+    value: number;
+    campus_id: string | null;
+    source?: string;
+  }>
+): { value: number | null; fromSheets: boolean } {
+  if (sheetMonth?.inPersonAdultsTotal != null) {
+    return { value: sheetMonth.inPersonAdultsTotal, fromSheets: true };
+  }
+
+  const dbValue = valueAtPeriod(adultsMonthly, targetMonth, null);
+  const fromSheets = adultsMonthly.some(
+    (row) =>
+      row.period_start === targetMonth &&
+      row.campus_id == null &&
+      row.source === "google_sheets"
+  );
+
+  return { value: dbValue, fromSheets };
 }
 
 function valueAtPeriod(
@@ -176,7 +353,7 @@ export async function getVitalSignsData(
   const [monthlyRows, annualRows, connectEvents, volunteerMatrix] = await Promise.all([
     getMonthlySnapshotsInRange(supabase, fyBounds.start, "2099-12-01"),
     getAnnualSnapshots(supabase, DEFAULT_FISCAL_YEAR),
-    fetchConnectEventsBaptisms(),
+    getConnectEventsBaptismsForCampus(campusId ?? null, campuses),
     fetchVolunteerMatrixCampuses(),
   ]);
 
@@ -196,40 +373,61 @@ export async function getVitalSignsData(
     (row) => row.metric?.key === "adult_worship_avg"
   );
 
-  const latestMonth = latestPeriodStart(attendanceMonthly);
-  const latestMonthLabel = latestMonth
-    ? formatMonthLabel(latestMonth)
-    : "Latest month";
+  const targetMonth = getPreviousCalendarMonthStart();
+  const latestMonthLabel = formatMonthLabel(targetMonth);
 
-  const churchMonthlyAttendance =
-    latestMonth != null
-      ? valueAtPeriod(attendanceMonthly, latestMonth, null)
-      : null;
-  const churchMonthlyFromSheets = attendanceMonthly.some(
-    (row) =>
-      row.source === "google_sheets" &&
-      row.period_start === latestMonth &&
-      row.campus_id == null
+  let sheetMonth: MonthlyAttendanceAggregate | undefined;
+  let priorSheetMonth: MonthlyAttendanceAggregate | undefined;
+  try {
+    const currentYear = new Date().getFullYear();
+    const sundays = await fetchParsedAttendanceYears([
+      currentYear - 1,
+      currentYear,
+    ]);
+    if (sundays.length > 0) {
+      const { monthly } = buildAttendanceAggregates(sundays);
+      const sheetMonthlyByPeriod = new Map(
+        monthly.map((month) => [month.periodStart, month])
+      );
+      sheetMonth = sheetMonthlyByPeriod.get(targetMonth);
+      priorSheetMonth = sheetMonthlyByPeriod.get(priorYearSameMonth(targetMonth));
+    }
+  } catch {
+    // Fall back to synced monthly snapshots below.
+  }
+
+  const priorYearMonth = priorYearSameMonth(targetMonth);
+
+  const churchAttendance = churchAttendanceValue(
+    targetMonth,
+    sheetMonth,
+    attendanceMonthly,
+    null,
+    null
   );
+  const churchMonthlyAttendance = churchAttendance.value;
+  const churchMonthlyFromSheets = churchAttendance.fromSheets;
 
-  const churchFyAttendance = annualValue(attendanceAnnual, null);
+  const churchAdults = churchAdultsValue(
+    targetMonth,
+    sheetMonth,
+    adultsMonthly
+  );
+  const churchMonthlyAdults = churchAdults.value;
 
-  const churchMonthlyKids =
-    latestMonth != null
-      ? sum(
-          campuses
-            .map((campus) =>
-              valueAtPeriod(kidsMonthly, latestMonth, campus.id)
-            )
-            .filter((value): value is number => value != null)
-        )
-      : 0;
-  const churchMonthlyAdults =
-    latestMonth != null ? valueAtPeriod(adultsMonthly, latestMonth, null) : null;
+  const churchMonthlyKidsReading = churchKidsValue(
+    targetMonth,
+    sheetMonth,
+    kidsMonthly
+  );
+  const churchMonthlyKids = churchMonthlyKidsReading.value;
+  const churchKidsFromSheets = churchMonthlyKidsReading.fromSheets;
   const churchMonthlyKidsPct =
-    churchMonthlyAdults != null
+    churchMonthlyKids != null && churchMonthlyAdults != null
       ? kidsSharePct(churchMonthlyKids, churchMonthlyAdults)
       : null;
+
+  const churchFyAttendance = annualValue(attendanceAnnual, null);
 
   const churchFyKids = sum(
     campuses
@@ -240,15 +438,52 @@ export async function getVitalSignsData(
   const churchFyKidsPct =
     churchFyAdults != null ? kidsSharePct(churchFyKids, churchFyAdults) : null;
 
+  const priorYearMonthLabel = formatMonthLabel(priorYearMonth);
+
+  const priorChurchKidsReading = churchKidsValue(
+    priorYearMonth,
+    priorSheetMonth,
+    kidsMonthly
+  );
+  const churchPriorYearKids = priorChurchKidsReading.value;
+  const churchPriorYearKidsHasData = churchPriorYearKids != null;
+
+  const priorYearAdults = churchAdultsValue(
+    priorYearMonth,
+    priorSheetMonth,
+    adultsMonthly
+  );
+  const churchPriorYearAdults = priorYearAdults.value;
+  const churchPriorYearKidsPct =
+    churchPriorYearKidsHasData && churchPriorYearAdults != null
+      ? kidsSharePct(churchPriorYearKids, churchPriorYearAdults)
+      : null;
+
+  const churchMonthlyKidsHasData = churchMonthlyKids != null;
+
+  const churchYearOverYearKids = yearOverYearReading(
+    churchMonthlyKidsHasData ? churchMonthlyKids : null,
+    churchPriorYearKidsHasData ? churchPriorYearKids : null,
+    priorYearMonthLabel,
+    (value) => value.toLocaleString(undefined, { maximumFractionDigits: 0 })
+  );
+
+  const churchYearOverYearPct = yearOverYearReading(
+    churchMonthlyKidsPct,
+    churchPriorYearKidsPct,
+    priorYearMonthLabel,
+    (value) => `${value.toFixed(1)}%`
+  );
+
   const byCampusAttendance: CampusAttendanceReading[] = campuses.map(
     (campus) => {
-      const monthlyValue =
-        latestMonth != null
-          ? valueAtPeriod(attendanceMonthly, latestMonth, campus.id)
-          : null;
-      const monthlyRow = attendanceMonthly.find(
-        (row) =>
-          row.period_start === latestMonth && row.campus_id === campus.id
+      const slug = attendanceCampusSlug(campus);
+      const monthlyAttendance = churchAttendanceValue(
+        targetMonth,
+        sheetMonth,
+        attendanceMonthly,
+        campus.id,
+        slug
       );
       const fyValue = annualValue(attendanceAnnual, campus.id);
 
@@ -256,8 +491,8 @@ export async function getVitalSignsData(
         campusId: campus.id,
         campusName: campus.name,
         monthly: reading(
-          monthlyValue,
-          monthlyValue != null && monthlyRow?.source === "google_sheets",
+          monthlyAttendance.value,
+          monthlyAttendance.value != null && monthlyAttendance.fromSheets,
           latestMonthLabel
         ),
         fiscalYear: reading(
@@ -270,17 +505,24 @@ export async function getVitalSignsData(
   );
 
   const byCampusKids: CampusKidsReading[] = campuses.map((campus) => {
-    const monthlyKids =
-      latestMonth != null
-        ? valueAtPeriod(kidsMonthly, latestMonth, campus.id)
-        : null;
-    const monthlyTotal =
-      latestMonth != null
-        ? valueAtPeriod(attendanceMonthly, latestMonth, campus.id)
-        : null;
+    const slug = attendanceCampusSlug(campus);
+    const monthlyKids = campusKidsValue(
+      targetMonth,
+      sheetMonth,
+      kidsMonthly,
+      campus.id,
+      slug
+    );
+    const monthlyAttendance = churchAttendanceValue(
+      targetMonth,
+      sheetMonth,
+      attendanceMonthly,
+      campus.id,
+      slug
+    );
     const monthlyPct =
-      monthlyKids != null && monthlyTotal != null
-        ? campusKidsPct(monthlyKids, monthlyTotal)
+      monthlyKids.value != null && monthlyAttendance.value != null
+        ? campusKidsPct(monthlyKids.value, monthlyAttendance.value)
         : null;
 
     const fyKids = annualValue(kidsAnnual, campus.id);
@@ -290,14 +532,37 @@ export async function getVitalSignsData(
         ? campusKidsPct(fyKids.value, fyTotal.value)
         : null;
 
-    const hasKidsData = fyKids.fromSheets || fyTotal.fromSheets;
+    const hasKidsData =
+      monthlyKids.fromSheets ||
+      monthlyAttendance.fromSheets ||
+      fyKids.fromSheets ||
+      fyTotal.fromSheets;
+
+    const priorKids = campusKidsValue(
+      priorYearMonth,
+      priorSheetMonth,
+      kidsMonthly,
+      campus.id,
+      slug
+    ).value;
+    const priorAttendance = churchAttendanceValue(
+      priorYearMonth,
+      priorSheetMonth,
+      attendanceMonthly,
+      campus.id,
+      slug
+    ).value;
+    const priorPct =
+      priorKids != null && priorAttendance != null
+        ? campusKidsPct(priorKids, priorAttendance)
+        : null;
 
     return {
       campusId: campus.id,
       campusName: campus.name,
       monthly: reading(
-        monthlyKids,
-        monthlyKids != null && hasKidsData,
+        monthlyKids.value,
+        monthlyKids.value != null && hasKidsData,
         latestMonthLabel
       ),
       fiscalYear: reading(
@@ -305,11 +570,27 @@ export async function getVitalSignsData(
         fyKids.value != null && hasKidsData,
         DEFAULT_FISCAL_YEAR
       ),
-      monthlyPct: reading(monthlyPct, monthlyPct != null && hasKidsData, latestMonthLabel),
+      monthlyPct: reading(
+        monthlyPct,
+        monthlyPct != null && hasKidsData,
+        latestMonthLabel
+      ),
       fiscalYearPct: reading(
         fyPct,
         fyPct != null && hasKidsData,
         DEFAULT_FISCAL_YEAR
+      ),
+      yearOverYearKids: yearOverYearReading(
+        monthlyKids.value,
+        priorKids,
+        priorYearMonthLabel,
+        (value) => value.toLocaleString(undefined, { maximumFractionDigits: 0 })
+      ),
+      yearOverYearPct: yearOverYearReading(
+        monthlyPct,
+        priorPct,
+        priorYearMonthLabel,
+        (value) => `${value.toFixed(1)}%`
       ),
     };
   });
@@ -348,9 +629,13 @@ export async function getVitalSignsData(
     : churchWideServing;
 
   const monthlyAttendanceForServing = selectedCampus
-    ? latestMonth != null
-      ? valueAtPeriod(attendanceMonthly, latestMonth, selectedCampus.id)
-      : null
+    ? churchAttendanceValue(
+        targetMonth,
+        sheetMonth,
+        attendanceMonthly,
+        selectedCampus.id,
+        attendanceCampusSlug(selectedCampus)
+      ).value
     : churchMonthlyAttendance;
 
   const servingFromSheets = volunteerMatrix.source === "google_sheets";
@@ -382,7 +667,7 @@ export async function getVitalSignsData(
       churchWide: {
         monthly: reading(
           churchMonthlyKids,
-          churchMonthlyFromSheets && latestMonth != null,
+          churchMonthlyKidsHasData && churchKidsFromSheets,
           latestMonthLabel
         ),
         fiscalYear: reading(
@@ -392,7 +677,7 @@ export async function getVitalSignsData(
         ),
         monthlyPct: reading(
           churchMonthlyKidsPct,
-          churchMonthlyKidsPct != null && churchMonthlyFromSheets,
+          churchMonthlyKidsPct != null && churchKidsFromSheets,
           latestMonthLabel
         ),
         fiscalYearPct: reading(
@@ -400,6 +685,8 @@ export async function getVitalSignsData(
           churchFyKidsPct != null && churchFyAttendance.fromSheets,
           DEFAULT_FISCAL_YEAR
         ),
+        yearOverYearKids: churchYearOverYearKids,
+        yearOverYearPct: churchYearOverYearPct,
       },
       byCampus: byCampusKids,
     },

@@ -6,43 +6,51 @@ import { UserCreateForm } from "@/components/UserCreateForm";
 import { UserList } from "@/components/UserList";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { canManageUsers } from "@/lib/permissions";
+import {
+  ALL_CAMPUS_ACCESS,
+  canManageUsers,
+  normalizeUserProfile,
+} from "@/lib/permissions";
 import { getUserProfile } from "@/lib/metrics";
 import type { ManagedUser, UserProfile } from "@/lib/types";
+import { queryAllUserProfileRows } from "@/lib/user-profile";
 
 async function getManagedUsers(): Promise<ManagedUser[]> {
   const admin = createAdminClient();
-  const [{ data: authData }, { data: profiles }] = await Promise.all([
+  const [{ data: authData }, profiles] = await Promise.all([
     admin.auth.admin.listUsers({ perPage: 200 }),
-    admin.from("user_profiles").select(
-      "id, display_name, role, financial_insights, can_view_overview, can_view_adult_discipleship, can_view_next_gen, can_view_weekend_reach, can_view_operations, can_edit_benchmarks, can_access_chms, can_manage_chms_processes"
-    ),
+    queryAllUserProfileRows(admin),
   ]);
 
   const profileById = new Map(
-    (profiles ?? []).map((row) => [row.id, row as UserProfile])
+    profiles.map((row) => [row.id, normalizeUserProfile(row)])
   );
 
   return (authData?.users ?? [])
     .map((user) => {
       const existing = profileById.get(user.id);
+      const profile = existing ? normalizeUserProfile(existing) : null;
       return {
         id: user.id,
         email: user.email ?? "",
         display_name:
-          existing?.display_name ??
+          profile?.display_name ??
           (user.user_metadata?.display_name as string | undefined) ??
           null,
-        role: existing?.role ?? "staff",
-        financial_insights: existing?.financial_insights ?? false,
-        can_view_overview: existing?.can_view_overview ?? true,
-        can_view_adult_discipleship: existing?.can_view_adult_discipleship ?? true,
-        can_view_next_gen: existing?.can_view_next_gen ?? true,
-        can_view_weekend_reach: existing?.can_view_weekend_reach ?? true,
-        can_view_operations: existing?.can_view_operations ?? false,
-        can_edit_benchmarks: existing?.can_edit_benchmarks ?? false,
-        can_access_chms: existing?.can_access_chms ?? true,
-        can_manage_chms_processes: existing?.can_manage_chms_processes ?? false,
+        role: profile?.role ?? "staff",
+        financial_insights: profile?.financial_insights ?? false,
+        can_view_overview: profile?.can_view_overview ?? true,
+        can_view_adult_discipleship: profile?.can_view_adult_discipleship ?? true,
+        can_view_next_gen: profile?.can_view_next_gen ?? true,
+        can_view_weekend_reach: profile?.can_view_weekend_reach ?? true,
+        can_view_operations: profile?.can_view_operations ?? false,
+        can_view_monthly_expenses: profile?.can_view_monthly_expenses ?? false,
+        monthly_expenses_scope: profile?.monthly_expenses_scope ?? "all",
+        can_view_volunteer_matrix: profile?.can_view_volunteer_matrix ?? true,
+        campus_access: profile?.campus_access ?? ALL_CAMPUS_ACCESS,
+        can_edit_benchmarks: profile?.can_edit_benchmarks ?? false,
+        can_access_chms: profile?.can_access_chms ?? true,
+        can_manage_chms_processes: profile?.can_manage_chms_processes ?? false,
       };
     })
     .sort((a, b) => a.email.localeCompare(b.email));

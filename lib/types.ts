@@ -36,6 +36,11 @@ export type MetricSnapshot = {
   campus?: Campus;
 };
 
+export type BenchmarkMinistryArea =
+  | "weekend-reach"
+  | "adult-discipleship"
+  | "next-gen";
+
 export type BenchmarkTarget = {
   id: string;
   campus_id: string | null;
@@ -44,9 +49,25 @@ export type BenchmarkTarget = {
   target_value: number;
   stretch_value: number | null;
   label: string | null;
+  ministry_area: BenchmarkMinistryArea | null;
   metric?: Metric;
   campus?: Campus;
 };
+
+export type MonthlyExpensesScope =
+  | "all"
+  | "central"
+  | "mount-pleasant"
+  | "alma"
+  | "st-johns";
+
+export type CampusAccessOption =
+  | "church-wide"
+  | "mount-pleasant"
+  | "alma"
+  | "st-johns";
+
+export type CampusAccessSlug = Exclude<CampusAccessOption, "church-wide">;
 
 export type UserProfile = {
   id: string;
@@ -58,6 +79,10 @@ export type UserProfile = {
   can_view_next_gen: boolean;
   can_view_weekend_reach: boolean;
   can_view_operations: boolean;
+  can_view_monthly_expenses: boolean;
+  monthly_expenses_scope: MonthlyExpensesScope;
+  can_view_volunteer_matrix: boolean;
+  campus_access: CampusAccessOption[];
   can_edit_benchmarks: boolean;
   can_access_chms: boolean;
   can_manage_chms_processes: boolean;
@@ -105,8 +130,8 @@ export const THEMES = [
 
 export type ThemeName = (typeof THEMES)[number];
 
-export const DEFAULT_FISCAL_YEAR = "FY25/26";
-export const LAST_FISCAL_YEAR = "FY24/25";
+export const DEFAULT_FISCAL_YEAR = "FY26/27";
+export const LAST_FISCAL_YEAR = "FY25/26";
 export const TARGET_FISCAL_YEAR = "FY26/27";
 
 export const FISCAL_YEAR_OPTIONS = [

@@ -9,7 +9,14 @@ const MODES: { value: CompareMode; label: string }[] = [
   { value: "vs-church", label: "Campus vs church-wide" },
 ];
 
-export function ComparisonToggle() {
+export function ComparisonToggle({
+  allowedModes,
+}: {
+  allowedModes?: CompareMode[];
+}) {
+  const modes = allowedModes
+    ? MODES.filter((mode) => allowedModes.includes(mode.value))
+    : MODES;
   const router = useRouter();
   const searchParams = useSearchParams();
   const current = (searchParams.get("compare") as CompareMode) ?? "off";
@@ -22,23 +29,21 @@ export function ComparisonToggle() {
   }
 
   return (
-    <div className="flex items-center gap-2 shrink-0">
-      <label htmlFor="compare-mode" className="text-sm text-base-content/70 hidden sm:inline">
-        Compare
-      </label>
+    <label className="sfdc-field">
+      <span className="sfdc-field__label">Compare</span>
       <select
         id="compare-mode"
-        className="select select-bordered select-sm min-w-[11rem]"
+        className="sfdc-select"
         value={current}
         onChange={(e) => setCompare(e.target.value as CompareMode)}
         aria-label="Comparison mode"
       >
-        {MODES.map((mode) => (
+        {modes.map((mode) => (
           <option key={mode.value} value={mode.value}>
             {mode.label}
           </option>
         ))}
       </select>
-    </div>
+    </label>
   );
 }

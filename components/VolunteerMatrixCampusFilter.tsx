@@ -25,9 +25,27 @@ function useVolunteerMatrixParams() {
   return { searchParams, updateParam };
 }
 
-export function VolunteerMatrixCampusFilter() {
+type VolunteerMatrixCampusScopeProps = {
+  selectedCampusSlug?: VolunteerCampusSlug | null;
+  allowedCampusSlugs?: VolunteerCampusSlug[] | null;
+};
+
+export function VolunteerMatrixCampusFilter({
+  selectedCampusSlug,
+  allowedCampusSlugs = null,
+}: VolunteerMatrixCampusScopeProps) {
   const { searchParams, updateParam } = useVolunteerMatrixParams();
-  const current = searchParams.get("campus") ?? "all";
+  const current =
+    selectedCampusSlug !== undefined
+      ? selectedCampusSlug ?? "all"
+      : searchParams.get("campus") ?? "all";
+  const showAllOption = allowedCampusSlugs == null;
+  const campusOptions = allowedCampusSlugs
+    ? VOLUNTEER_MATRIX_CAMPUS_TABS.filter((campus) =>
+        allowedCampusSlugs.includes(campus.slug)
+      )
+    : VOLUNTEER_MATRIX_CAMPUS_TABS;
+  const optionCount = campusOptions.length + (showAllOption ? 1 : 0);
 
   return (
     <label className="navbar-field">
@@ -37,9 +55,10 @@ export function VolunteerMatrixCampusFilter() {
         value={current}
         onChange={(event) => updateParam("campus", event.target.value)}
         aria-label="Campus filter"
+        disabled={optionCount <= 1}
       >
-        <option value="all">All campuses</option>
-        {VOLUNTEER_MATRIX_CAMPUS_TABS.map((campus) => (
+        {showAllOption && <option value="all">All campuses</option>}
+        {campusOptions.map((campus) => (
           <option key={campus.slug} value={campus.slug}>
             {campus.label}
           </option>
@@ -73,10 +92,12 @@ export function VolunteerMatrixMinistryAreaFilter() {
   );
 }
 
-export function VolunteerMatrixPageFilters() {
+export function VolunteerMatrixPageFilters(
+  props: VolunteerMatrixCampusScopeProps
+) {
   return (
     <div className="flex flex-wrap items-end gap-3">
-      <VolunteerMatrixCampusFilter />
+      <VolunteerMatrixCampusFilter {...props} />
       <VolunteerMatrixMinistryAreaFilter />
     </div>
   );

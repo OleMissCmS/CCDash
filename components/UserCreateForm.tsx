@@ -22,9 +22,13 @@ export function UserCreateForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
     setError(null);
     setMessage(null);
+    if (role === "staff" && permissions.campus_access.length === 0) {
+      setError("Select at least one campus access option.");
+      return;
+    }
+    setLoading(true);
 
     const response = await fetch("/api/admin/users", {
       method: "POST",

@@ -111,6 +111,9 @@ function parseCsvRows(csv: string): string[][] {
   return rows;
 }
 
+const GENERAL_FUND_EXPENSE_MIN = 25_000;
+const GENERAL_FUND_EXPENSE_MAX = 500_000;
+
 function isLegacyAmountsLayout(
   giving: number | null,
   expenses: number | null,
@@ -122,6 +125,30 @@ function isLegacyAmountsLayout(
     giving > expenses &&
     Math.abs(giving + expenses - total) < 2
   );
+}
+
+function maxMoneyInRow(row: string[], startIndex: number): number | null {
+  let max: number | null = null;
+
+  for (let index = startIndex; index < row.length; index += 1) {
+    const amount = parseMoney(row[index]);
+    if (amount == null || amount <= 0) continue;
+    if (max == null || amount > max) max = amount;
+  }
+
+  return max;
+}
+
+function parseModernSecondaryExpenses(row: string[]): number | null {
+  const expenses = parseMoney(row[12]);
+  if (
+    expenses == null ||
+    expenses < GENERAL_FUND_EXPENSE_MIN ||
+    expenses > GENERAL_FUND_EXPENSE_MAX
+  ) {
+    return null;
+  }
+  return expenses;
 }
 
 function parseAmountsPrimaryBlock(row: string[]): ParsedGivingMonth | null {
@@ -142,14 +169,13 @@ function parseAmountsPrimaryBlock(row: string[]): ParsedGivingMonth | null {
     expenses = col5;
   } else if (col7 !== null) {
     totalGiving = col7;
-    expenses = col3;
+    expenses =
+      col4 != null && col4 < col7 && col4 >= 25_000 && col4 <= 200_000
+        ? col4
+        : null;
   } else if (col4 !== null && col5 !== null) {
     totalGiving = col4 + col5 + (parseMoney(row[6]) ?? 0);
     expenses = col3;
-  }
-
-  if (totalGiving === null && givers === null && expenses === null) {
-    return null;
   }
 
   return { periodStart, givers, totalGiving, expenses, campuses: {} };
@@ -160,16 +186,9 @@ function parseAmountsSecondaryBlock(row: string[]): ParsedGivingMonth | null {
   if (!periodStart) return null;
 
   const givers = parseCount(row[10]);
-  const partA = parseMoney(row[13]);
-  const partB = parseMoney(row[14]);
-  const expenses = parseMoney(row[15]);
-
-  let totalGiving: number | null = null;
-  if (partA !== null && partB !== null) {
-    totalGiving = partA + partB;
-  } else {
-    totalGiving = partB ?? partA;
-  }
+  const grandTotal = parseMoney(row[16]);
+  const totalGiving = grandTotal ?? maxMoneyInRow(row, 12);
+  const expenses = parseModernSecondaryExpenses(row);
 
   if (totalGiving === null && givers === null && expenses === null) {
     return null;
@@ -273,8 +292,8 @@ function mergeGivingMonths(
     totalGiving: target.totalGiving ?? source.totalGiving,
     expenses: target.expenses ?? source.expenses,
     campuses: {
-      ...target.campuses,
       ...source.campuses,
+      ...target.campuses,
     },
   };
 }
@@ -351,6 +370,121 @@ export function mergeAmountsAndCampus(
   return [...byMonth.values()].sort((a, b) =>
     a.periodStart.localeCompare(b.periodStart)
   );
+}
+
+function fiscalYearBudgetSearchTerms(fiscalYearLabel: string): string[] {
+  const match = fiscalYearLabel.match(/^FY(\d{2})\/(\d{2})$/i);
+  if (!match) return [fiscalYearLabel];
+
+  const startYear = Number(match[1]);
+  const endYear = Number(match[2]);
+  const fullStart = 2000 + startYear;
+  const fullEnd = 2000 + endYear;
+
+  return [
+    fiscalYearLabel,
+    `FY ${fullStart}/${fullEnd}`,
+    `FY ${startYear}/${endYear}`,
+    `${fullStart}/${fullEnd}`,
+    `${startYear}/${endYear}`,
+  ];
+}
+
+function rowContainsBudgetLabel(row: string[], searchTerms: string[]): boolean {
+  const rowText = row.join(" ");
+  if (!/total budgeted income/i.test(rowText)) return false;
+  return searchTerms.some((term) => rowText.includes(term));
+}
+
+function firstMoneyValueInRow(row: string[], startIndex = 0): number | null {
+  for (let index = startIndex; index < row.length; index += 1) {
+    const amount = parseMoney(row[index]);
+    if (amount != null && amount > 0) return amount;
+  }
+  return null;
+}
+
+function countMoneyCells(row: string[]): number {
+  let count = 0;
+  for (const cell of row) {
+    if (parseMoney(cell) != null) count += 1;
+  }
+  return count;
+}
+
+export function parseAmountsBudgetIncomeColumn(rows: string[][]): number | null {
+  // Annual budget sits on a sparse row: only prior-FY (col H) and current-FY (col Q)
+  // dollar amounts. Scan the whole sheet and keep the last match so we get the
+  // active budget row (e.g. $3,871,753.30 | $4,327,219.59), not older FY pairs.
+  let annualBudget: number | null = null;
+
+  for (const row of rows) {
+    if (parseSheetMonth(row[0] ?? "") || parseSheetMonth(row[9] ?? "")) {
+      continue;
+    }
+
+    const primary = parseMoney(row[7]);
+    const secondary = parseMoney(row[16]);
+    if (primary == null || secondary == null) continue;
+    if (countMoneyCells(row) !== 2) continue;
+    if (secondary < 3_000_000 || primary < 3_000_000) continue;
+
+    annualBudget = secondary;
+  }
+
+  return annualBudget;
+}
+
+export function parseAccountsBudgetIncome(
+  rows: string[][],
+  fiscalYearLabel: string
+): number | null {
+  const searchTerms = fiscalYearBudgetSearchTerms(fiscalYearLabel);
+
+  for (const row of rows) {
+    if (!rowContainsBudgetLabel(row, searchTerms)) continue;
+
+    for (let index = 0; index < row.length; index += 1) {
+      const cell = row[index]?.trim() ?? "";
+      if (!/total budgeted income/i.test(cell)) continue;
+
+      const amountInLabel = parseMoney(cell.replace(/total budgeted income/gi, ""));
+      if (amountInLabel != null && amountInLabel > 0) {
+        return amountInLabel;
+      }
+
+      const amountAfterLabel = firstMoneyValueInRow(row, index + 1);
+      if (amountAfterLabel != null) return amountAfterLabel;
+    }
+
+    const amounts = row
+      .map((cell) => parseMoney(cell))
+      .filter((value): value is number => value != null && value > 0);
+    if (amounts.length > 0) {
+      return Math.max(...amounts);
+    }
+  }
+
+  return null;
+}
+
+export async function fetchGivingAnnualBudget(
+  fiscalYearLabel: string
+): Promise<number | null> {
+  const [accountsRows, amountsRows] = await Promise.all([
+    fetchSheetCsv("Accounts"),
+    fetchSheetCsv("Amounts"),
+  ]);
+
+  for (const rows of [amountsRows, accountsRows]) {
+    const columnBudget = parseAmountsBudgetIncomeColumn(rows);
+    if (columnBudget != null) return columnBudget;
+
+    const labeled = parseAccountsBudgetIncome(rows, fiscalYearLabel);
+    if (labeled != null) return labeled;
+  }
+
+  return null;
 }
 
 async function fetchSheetCsv(sheetName: string): Promise<string[][]> {

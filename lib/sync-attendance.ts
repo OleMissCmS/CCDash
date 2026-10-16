@@ -74,6 +74,19 @@ function buildMonthlySnapshotRows(
     });
   }
 
+  if (month.churchKidsTotal !== null) {
+    rows.push({
+      campus_id: null,
+      metric_id: metricIds.kids_avg,
+      period_start: month.periodStart,
+      period_type: "monthly",
+      fiscal_year: null,
+      calendar_year: null,
+      value: roundMetric(month.churchKidsTotal),
+      source: "google_sheets",
+    });
+  }
+
   for (const slug of Object.keys(campusIds) as AttendanceCampusSlug[]) {
     const campus = month.campuses[slug];
     const campusId = campusIds[slug];

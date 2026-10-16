@@ -72,12 +72,163 @@ export function getFiscalYearMonthlyBounds(fiscalYear: string): {
   };
 }
 
+export function getCurrentFiscalYear(referenceDate = new Date()): string {
+  const year = referenceDate.getFullYear();
+  const startYear = referenceDate.getMonth() >= 4 ? year : year - 1;
+  const startYy = String(startYear).slice(-2);
+  const endYy = String(startYear + 1).slice(-2);
+  return `FY${startYy}/${endYy}`;
+}
+
+export function getFiscalYearYtdMonthEnd(
+  fiscalYear: string,
+  referenceDate = new Date()
+): string | null {
+  const { start, end } = getFiscalYearMonthlyBounds(fiscalYear);
+  const previousMonth = getPreviousCalendarMonthStart(referenceDate);
+
+  if (previousMonth < start) return null;
+
+  const lastFyMonth = padMonth(
+    new Date(
+      new Date(`${end}T12:00:00`).getFullYear(),
+      new Date(`${end}T12:00:00`).getMonth() - 1,
+      1
+    )
+  );
+
+  return previousMonth > lastFyMonth ? lastFyMonth : previousMonth;
+}
+
+/**
+ * Months complete in the fiscal year through a specific month (inclusive).
+ * Use when actuals are already positioned on the as-of month (e.g. July = 3 months in).
+ */
+export function getFiscalYearMonthsElapsedThroughMonth(
+  fiscalYear: string,
+  throughMonthStart: Date
+): number {
+  const { start, end } = getFiscalYearMonthlyBounds(fiscalYear);
+  const throughMonth = padMonth(throughMonthStart);
+
+  if (throughMonth < start) return 0;
+
+  const lastFyMonth = padMonth(
+    new Date(
+      new Date(`${end}T12:00:00`).getFullYear(),
+      new Date(`${end}T12:00:00`).getMonth() - 1,
+      1
+    )
+  );
+  const ytdEnd = throughMonth > lastFyMonth ? lastFyMonth : throughMonth;
+
+  let count = 0;
+  let cursor = new Date(`${start}T12:00:00`);
+  const endCursor = new Date(`${ytdEnd}T12:00:00`);
+
+  while (cursor <= endCursor) {
+    count += 1;
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+  }
+
+  return count;
+}
+
+export function getFiscalYearPercentElapsedThroughMonth(
+  fiscalYear: string,
+  throughMonthStart: Date
+): number {
+  return (getFiscalYearMonthsElapsedThroughMonth(fiscalYear, throughMonthStart) / 12) * 100;
+}
+
+export function getFiscalYearMonthsElapsed(
+  fiscalYear: string,
+  referenceDate = new Date()
+): number {
+  const { start } = getFiscalYearMonthlyBounds(fiscalYear);
+  const ytdEnd = getFiscalYearYtdMonthEnd(fiscalYear, referenceDate);
+
+  if (!ytdEnd) return 0;
+
+  let count = 0;
+  let cursor = new Date(`${start}T12:00:00`);
+  const endCursor = new Date(`${ytdEnd}T12:00:00`);
+
+  while (cursor <= endCursor) {
+    count += 1;
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+  }
+
+  return count;
+}
+
+export function getFiscalYearPercentElapsed(
+  fiscalYear: string,
+  referenceDate = new Date()
+): number {
+  return (getFiscalYearMonthsElapsed(fiscalYear, referenceDate) / 12) * 100;
+}
+
 export function getPreviousCalendarMonthStart(
   referenceDate = new Date()
 ): string {
   return padMonth(
     new Date(referenceDate.getFullYear(), referenceDate.getMonth() - 1, 1)
   );
+}
+
+/** Month/year label for financial reporting (e.g. "July 2026"). */
+export function formatMonthYearLabel(date: Date): string {
+  return date.toLocaleString("en-US", { month: "long", year: "numeric" });
+}
+
+/**
+ * Expense actuals are posted through the end of the prior month.
+ * When the active workbook tab is the current month, use the previous month.
+ * Historical month tabs represent data through that month.
+ */
+export function getFinancialsAsOfMonthStart(
+  selectedPeriodId: string,
+  referenceDate = new Date()
+): Date {
+  if (selectedPeriodId !== "ytd") {
+    const periodStart = new Date(`${selectedPeriodId}T12:00:00`);
+    if (!Number.isNaN(periodStart.getTime())) {
+      const isCurrentMonthTab =
+        periodStart.getFullYear() === referenceDate.getFullYear() &&
+        periodStart.getMonth() === referenceDate.getMonth();
+
+      if (isCurrentMonthTab) {
+        return new Date(
+          referenceDate.getFullYear(),
+          referenceDate.getMonth() - 1,
+          1
+        );
+      }
+
+      return periodStart;
+    }
+  }
+
+  return new Date(referenceDate.getFullYear(), referenceDate.getMonth() - 1, 1);
+}
+
+export function getFinancialsAsOfLabel(
+  selectedPeriodId: string,
+  referenceDate = new Date()
+): string {
+  return formatMonthYearLabel(
+    getFinancialsAsOfMonthStart(selectedPeriodId, referenceDate)
+  );
+}
+
+/** Last day of the financials-as-of month (for FY pace calculations). */
+export function getFinancialsReferenceDate(
+  selectedPeriodId: string,
+  referenceDate = new Date()
+): Date {
+  const asOfMonth = getFinancialsAsOfMonthStart(selectedPeriodId, referenceDate);
+  return new Date(asOfMonth.getFullYear(), asOfMonth.getMonth() + 1, 0, 12, 0, 0);
 }
 
 export function isMonthlyPeriod(period: PeriodRange): boolean {

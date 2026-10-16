@@ -35,7 +35,7 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-full bg-base-200 text-base-content antialiased">
+      <body className="min-h-full sfdc-app antialiased">
         <ThemeInitializer />
         {children}
       </body>

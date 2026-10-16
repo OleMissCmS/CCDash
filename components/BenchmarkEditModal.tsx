@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import { BENCHMARK_MINISTRY_AREAS, VIEW_SECTION_LABELS } from "@/lib/sections";
 import type { BenchmarkTarget, Campus, Metric } from "@/lib/types";
 import { FISCAL_YEAR_OPTIONS } from "@/lib/types";
 
@@ -23,6 +24,7 @@ export function BenchmarkEditModal({
 }: BenchmarkEditModalProps) {
   const router = useRouter();
   const [metricId, setMetricId] = useState("");
+  const [ministryArea, setMinistryArea] = useState("");
   const [campusId, setCampusId] = useState("");
   const [targetValue, setTargetValue] = useState("");
   const [stretchValue, setStretchValue] = useState("");
@@ -34,6 +36,7 @@ export function BenchmarkEditModal({
   useEffect(() => {
     if (benchmark) {
       setMetricId(benchmark.metric_id);
+      setMinistryArea(benchmark.ministry_area ?? "");
       setCampusId(benchmark.campus_id ?? "");
       setTargetValue(String(benchmark.target_value));
       setStretchValue(
@@ -59,6 +62,7 @@ export function BenchmarkEditModal({
       .from("benchmark_targets")
       .update({
         metric_id: metricId,
+        ministry_area: ministryArea || null,
         campus_id: campusId || null,
         fiscal_year: fiscalYear,
         target_value: Number(targetValue),
@@ -103,6 +107,22 @@ export function BenchmarkEditModal({
                   {m.label}
                 </option>
               ))}
+            </select>
+          </label>
+
+          <label className="form-control w-full">
+            <span className="label-text">Ministry area</span>
+            <select
+              className="select select-bordered w-full"
+              value={ministryArea}
+              onChange={(e) => setMinistryArea(e.target.value)}
+            >
+              {BENCHMARK_MINISTRY_AREAS.map((area) => (
+                <option key={area} value={area}>
+                  {VIEW_SECTION_LABELS[area]}
+                </option>
+              ))}
+              <option value="">None</option>
             </select>
           </label>
 
