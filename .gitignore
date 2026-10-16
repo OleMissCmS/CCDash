@@ -42,3 +42,6 @@ next-env.d.ts
 
 # local POS database (created automatically in local mode)
 /data/pos/db.json
+
+# local Node toolchain
+/.tools
