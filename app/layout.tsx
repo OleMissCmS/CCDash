@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Montserrat } from "next/font/google";
+import { FeedbackWidget } from "@/components/FeedbackWidget";
 import { ThemeInitializer } from "@/components/ThemeSelector";
 import "./globals.css";
 
@@ -38,6 +39,7 @@ export default function RootLayout({
       <body className="min-h-full sfdc-app antialiased">
         <ThemeInitializer />
         {children}
+        <FeedbackWidget />
       </body>
     </html>
   );

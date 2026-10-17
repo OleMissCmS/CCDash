@@ -86,6 +86,11 @@ export function Navbar({ profile }: NavbarProps) {
                 Alerts
               </Link>
             )}
+            {profile && isAdmin(profile) && (
+              <Link href="/settings/feedback" className="sfdc-global-link">
+                Feedback
+              </Link>
+            )}
             {profile && canManageUsers(profile) && (
               <Link href="/settings/users" className="sfdc-global-link">
                 Users
