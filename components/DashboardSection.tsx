@@ -2,11 +2,12 @@ import { GivingBudgetProgressCard } from "@/components/GivingBudgetProgressCard"
 import { LastWeekKidsTotalCard } from "@/components/LastWeekKidsTotalCard";
 import { BaptismsPanel } from "@/components/BaptismsPanel";
 import { FirstTimeGuestsPanel } from "@/components/FirstTimeGuestsPanel";
+import { KpiCard } from "@/components/KpiCard";
 import { KpiCardWithPeriod } from "@/components/KpiCardWithPeriod";
 import type { CardBenchmarkEdit } from "@/components/CardBenchmarkMenu";
 import { BenchmarkComparisonTable } from "@/components/BenchmarkComparisonTable";
 import { ComparisonPanel } from "@/components/ComparisonPanel";
-import { CampusCompareChart, GivingMonthlyChart, GivingVsExpensesChart, KidsCalendarYearTrendChart, TrendChart } from "@/components/Charts";
+import { AttendanceCalendarYearTrendChart, CampusCompareChart, GivingMonthlyChart, GivingVsExpensesChart, KidsCalendarYearTrendChart, TrendChart } from "@/components/Charts";
 import { createClient } from "@/lib/supabase/server";
 import {
   findBenchmark,
@@ -22,6 +23,7 @@ import {
   buildCardPeriodValuesForMetric,
   getAnnualSnapshots,
   getBenchmarkTargets,
+  getAttendanceCalendarYearTrend,
   getDashboardData,
   getFiscalYearGivingYtd,
   getGivingAnnualBudget,
@@ -33,7 +35,7 @@ import {
   getLastWeekKidsAttendanceByCampus,
   getSectionMonthlySnapshots,
 } from "@/lib/metrics";
-import { getCurrentFiscalYear } from "@/lib/periods";
+import { getCurrentFiscalYear, getFiscalYearMonthlyBounds } from "@/lib/periods";
 import {
   benchmarkTargetsForSection,
   buildMetricLayoutGroups,
@@ -142,6 +144,7 @@ export async function DashboardSection({
     showKidsAttendanceCharts && fullCampusAccess && section !== "next-gen";
   const showNextGenKidsWeek = section === "next-gen";
   const showKidsCalendarYearChart = sectionShowsKidsCalendarYearChart(section);
+  const showOverviewYearCompare = section === "overview";
   const showGivingTrend = sectionShowsGivingTrend(section) && canViewFinancial;
   const showGivingByCampusChart = showGivingTrend && fullCampusAccess;
   const showGivingVsExpensesChart = showGivingTrend && churchWideAccess;
@@ -150,7 +153,7 @@ export async function DashboardSection({
   const showFirstTimeGuestsPanel = sectionShowsFirstTimeGuestsPanel(section);
   const cardCampusId = compareMode === "cross-campus" ? null : campusId;
 
-  const [lastWeekAttendance, givingTrend, givingVsExpenses, connectEventsBaptisms, firstTimeGuests, kidsAttendanceTrend, kidsCalendarYearTrend, lastWeekKidsAttendance] =
+  const [lastWeekAttendance, givingTrend, givingVsExpenses, connectEventsBaptisms, firstTimeGuests, kidsAttendanceTrend, kidsCalendarYearTrend, attendanceCalendarYearTrend, lastWeekKidsAttendance] =
     await Promise.all([
     showLastWeekCampusChart
       ? getLastWeekAttendanceByCampus(supabase)
@@ -167,11 +170,14 @@ export async function DashboardSection({
     showFirstTimeGuestsPanel
       ? getFirstTimeGuestsForCampus(cardCampusId, campuses)
       : Promise.resolve(null),
-    showKidsAttendanceCharts
+    showKidsAttendanceCharts && !showOverviewYearCompare
       ? getKidsAttendanceMonthlyTrend(supabase, cardCampusId)
       : Promise.resolve([]),
-    showKidsCalendarYearChart
+    showKidsCalendarYearChart || showOverviewYearCompare
       ? getKidsAttendanceCalendarYearTrend(supabase, cardCampusId)
+      : Promise.resolve([]),
+    showOverviewYearCompare
+      ? getAttendanceCalendarYearTrend(supabase, cardCampusId)
       : Promise.resolve([]),
     showLastWeekKidsCampusChart || showNextGenKidsWeek
       ? getLastWeekKidsAttendanceByCampus(supabase)
@@ -191,6 +197,7 @@ export async function DashboardSection({
   const givingTrendSubtitle = `MP · Alma · SJ stacked · ${currentFiscalYear} YTD`;
   const attendanceTrendSubtitle = `${cardCampusLabel} · Last 12 months · Sunday Attendance sheet`;
   const kidsAttendanceTrendSubtitle = `${cardCampusLabel} · Last 12 months · Sunday Attendance sheet`;
+  const overviewYearCompareSubtitle = `${cardCampusLabel} · 2023 through current year · Sunday Attendance sheet`;
   const kidsCalendarYearSubtitle = `${cardCampusLabel} · Calendar year monthly average · Sunday Attendance sheet`;
   const givingVsExpensesSubtitle =
     `Church-wide · Amounts tab · ${currentFiscalYear} YTD`;
@@ -228,9 +235,12 @@ export async function DashboardSection({
     .join(" · ");
 
   const showGivingBudgetProgress = showGivingTrend;
+  const showFiscalYearGivingCard = metrics.some(
+    (metric) => metric.key === "total_giving"
+  );
 
   const [givingYtd, givingAnnualBudget] = await Promise.all([
-    showGivingBudgetProgress
+    showGivingBudgetProgress || showFiscalYearGivingCard
       ? getFiscalYearGivingYtd(supabase, cardCampusId)
       : Promise.resolve(null),
     showGivingBudgetProgress
@@ -337,6 +347,38 @@ export async function DashboardSection({
             : null,
         }
       : null;
+
+    if (metric.key === "total_giving") {
+      if (showGivingBudgetProgress || givingYtd == null) return null;
+      const fiscalYear = getCurrentFiscalYear();
+      const { start, end } = getFiscalYearMonthlyBounds(fiscalYear);
+      const rangeStart = new Date(`${start}T12:00:00`).toLocaleDateString(
+        "en-US",
+        { month: "long", day: "numeric", year: "numeric" }
+      );
+      const rangeEndDate = new Date(`${end}T12:00:00`);
+      rangeEndDate.setMonth(rangeEndDate.getMonth() + 1);
+      rangeEndDate.setDate(0);
+      const rangeEnd = rangeEndDate.toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      });
+      return (
+        <KpiCard
+          key={metric.id}
+          metric={{ ...metric, label: "Total Giving" }}
+          value={givingYtd}
+          subtitle={[
+            `Fiscal year · ${rangeStart}–${rangeEnd}`,
+            subtitleCampus,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          benchmarkEdit={benchmarkEdit}
+        />
+      );
+    }
 
     return (
       <KpiCardWithPeriod
@@ -511,7 +553,16 @@ export async function DashboardSection({
               subtitle={givingVsExpensesSubtitle}
             />
           )}
-          {sectionShowsAttendanceTrend(section) && attendanceTrend.length > 0 && (
+          {showOverviewYearCompare && attendanceCalendarYearTrend.length > 0 && (
+            <AttendanceCalendarYearTrendChart
+              data={attendanceCalendarYearTrend}
+              title="Monthly average attendance (12 months)"
+              subtitle={overviewYearCompareSubtitle}
+            />
+          )}
+          {!showOverviewYearCompare &&
+            sectionShowsAttendanceTrend(section) &&
+            attendanceTrend.length > 0 && (
             <TrendChart
               data={attendanceTrend}
               title="Monthly average attendance (12 months)"
@@ -542,7 +593,16 @@ export async function DashboardSection({
               subtitle={kidsCalendarYearSubtitle}
             />
           )}
-          {showKidsAttendanceCharts && kidsAttendanceTrend.length > 0 && (
+          {showOverviewYearCompare && kidsCalendarYearTrend.length > 0 && (
+            <KidsCalendarYearTrendChart
+              data={kidsCalendarYearTrend}
+              title="Monthly average kids attendance (12 months)"
+              subtitle={overviewYearCompareSubtitle}
+            />
+          )}
+          {!showOverviewYearCompare &&
+            showKidsAttendanceCharts &&
+            kidsAttendanceTrend.length > 0 && (
             <TrendChart
               data={kidsAttendanceTrend}
               title="Monthly average kids attendance (12 months)"
