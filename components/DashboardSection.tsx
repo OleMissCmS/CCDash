@@ -7,7 +7,7 @@ import { KpiCardWithPeriod } from "@/components/KpiCardWithPeriod";
 import type { CardBenchmarkEdit } from "@/components/CardBenchmarkMenu";
 import { BenchmarkComparisonTable } from "@/components/BenchmarkComparisonTable";
 import { ComparisonPanel } from "@/components/ComparisonPanel";
-import { AttendanceCalendarYearTrendChart, CampusCompareChart, GivingMonthlyChart, GivingVsExpensesChart, KidsCalendarYearTrendChart, TrendChart } from "@/components/Charts";
+import { AttendanceCalendarYearTrendChart, AttendanceLinearRegressionChart, CampusCompareChart, GivingMonthlyChart, GivingVsExpensesChart, KidsCalendarYearTrendChart, TrendChart } from "@/components/Charts";
 import { createClient } from "@/lib/supabase/server";
 import {
   findBenchmark,
@@ -556,7 +556,14 @@ export async function DashboardSection({
           {showOverviewYearCompare && attendanceCalendarYearTrend.length > 0 && (
             <AttendanceCalendarYearTrendChart
               data={attendanceCalendarYearTrend}
-              title="Monthly average attendance (12 months)"
+              title="Monthly average attendance"
+              subtitle={overviewYearCompareSubtitle}
+            />
+          )}
+          {showOverviewYearCompare && attendanceCalendarYearTrend.length > 0 && (
+            <AttendanceLinearRegressionChart
+              data={attendanceCalendarYearTrend}
+              title="Linear regression · monthly average attendance"
               subtitle={overviewYearCompareSubtitle}
             />
           )}
@@ -596,7 +603,7 @@ export async function DashboardSection({
           {showOverviewYearCompare && kidsCalendarYearTrend.length > 0 && (
             <KidsCalendarYearTrendChart
               data={kidsCalendarYearTrend}
-              title="Monthly average kids attendance (12 months)"
+              title="Monthly average kids attendance"
               subtitle={overviewYearCompareSubtitle}
             />
           )}

@@ -206,6 +206,153 @@ export function AttendanceCalendarYearTrendChart({
   );
 }
 
+type AttendanceLinearRegressionChartProps = {
+  data: AttendanceCalendarYearTrendPoint[];
+  title: string;
+  subtitle?: string;
+};
+
+function chronologicalAttendancePoints(
+  data: AttendanceCalendarYearTrendPoint[]
+): { label: string; value: number }[] {
+  const years = [
+    ...new Set(data.flatMap((point) => Object.keys(point.byYear).map(Number))),
+  ].sort((a, b) => a - b);
+
+  const points: { label: string; value: number }[] = [];
+  for (const year of years) {
+    for (const point of data) {
+      const value = point.byYear[year];
+      if (value == null) continue;
+      points.push({
+        label: `${point.label} ${String(year).slice(2)}`,
+        value,
+      });
+    }
+  }
+
+  return points;
+}
+
+function fitAttendanceRegression(values: number[]) {
+  const count = values.length;
+  let sumX = 0;
+  let sumY = 0;
+  let sumXY = 0;
+  let sumXX = 0;
+
+  values.forEach((value, index) => {
+    sumX += index;
+    sumY += value;
+    sumXY += index * value;
+    sumXX += index * index;
+  });
+
+  const denominator = count * sumXX - sumX * sumX;
+  if (denominator === 0) return null;
+
+  const slope = (count * sumXY - sumX * sumY) / denominator;
+  const intercept = (sumY - slope * sumX) / count;
+  return { slope, intercept };
+}
+
+function formatSignedPeople(value: number, digits: number) {
+  const rounded = Number(value.toFixed(digits));
+  const sign = rounded > 0 ? "+" : "";
+  return `${sign}${rounded.toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}`;
+}
+
+export function AttendanceLinearRegressionChart({
+  data,
+  title,
+  subtitle,
+}: AttendanceLinearRegressionChartProps) {
+  const observed = chronologicalAttendancePoints(data);
+  const fit = fitAttendanceRegression(observed.map((point) => point.value));
+  const chartData =
+    fit == null
+      ? []
+      : observed.map((point, index) => ({
+          label: point.label,
+          attendance: point.value,
+          regression: fit.intercept + fit.slope * index,
+        }));
+
+  if (chartData.length < 2 || fit == null) {
+    return (
+      <SfdcWidget title={title}>
+        <p className="text-sm text-base-content/60">
+          Not enough attendance data for a regression.
+        </p>
+      </SfdcWidget>
+    );
+  }
+
+  const monthlySlope = formatSignedPeople(fit.slope, 1);
+  const yearlySlope = formatSignedPeople(fit.slope * 12, 0);
+
+  return (
+    <SfdcWidget title={title}>
+      {subtitle && (
+        <p className="sfdc-metric-subtitle mb-1 -mt-1">{subtitle}</p>
+      )}
+      <p className="sfdc-metric-subtitle mb-3">
+        Trend: {monthlySlope} people per month ({yearlySlope} per year)
+      </p>
+      <div className="h-64 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+            <XAxis
+              dataKey="label"
+              tick={{ fontSize: 11 }}
+              minTickGap={28}
+              interval="preserveStartEnd"
+            />
+            <YAxis
+              tick={{ fontSize: 12 }}
+              tickFormatter={(value) => formatValue(Number(value), "people")}
+              width={56}
+            />
+            <Tooltip
+              formatter={(value, name) => [
+                value == null ? "—" : formatValue(Number(value), "people"),
+                name,
+              ]}
+              labelFormatter={(label) => `Month: ${label}`}
+            />
+            <Legend />
+            <Line
+              type="monotone"
+              dataKey="attendance"
+              name="Monthly average"
+              stroke="var(--sfdc-brand)"
+              strokeWidth={2}
+              dot={{ r: 2 }}
+              connectNulls={false}
+              isAnimationActive={false}
+            />
+            <Line
+              type="linear"
+              dataKey="regression"
+              name="Linear regression"
+              stroke="#032d60"
+              strokeWidth={3}
+              strokeDasharray="6 4"
+              dot={false}
+              activeDot={{ r: 4 }}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </SfdcWidget>
+  );
+}
+
 type KidsCalendarYearTrendChartProps = {
   data: KidsCalendarYearTrendPoint[];
   title: string;
