@@ -253,7 +253,18 @@ function fitAttendanceRegression(values: number[]) {
 
   const slope = (count * sumXY - sumX * sumY) / denominator;
   const intercept = (sumY - slope * sumX) / count;
-  return { slope, intercept };
+  const meanY = sumY / count;
+  let residualSum = 0;
+  let totalSum = 0;
+
+  values.forEach((value, index) => {
+    const predicted = intercept + slope * index;
+    residualSum += (value - predicted) ** 2;
+    totalSum += (value - meanY) ** 2;
+  });
+
+  const rSquared = totalSum === 0 ? 1 : 1 - residualSum / totalSum;
+  return { slope, intercept, rSquared };
 }
 
 function formatSignedPeople(value: number, digits: number) {
@@ -293,6 +304,10 @@ export function AttendanceLinearRegressionChart({
 
   const monthlySlope = formatSignedPeople(fit.slope, 1);
   const yearlySlope = formatSignedPeople(fit.slope * 12, 0);
+  const rSquared = fit.rSquared.toLocaleString(undefined, {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  });
 
   return (
     <SfdcWidget title={title}>
@@ -300,7 +315,8 @@ export function AttendanceLinearRegressionChart({
         <p className="sfdc-metric-subtitle mb-1 -mt-1">{subtitle}</p>
       )}
       <p className="sfdc-metric-subtitle mb-3">
-        Trend: {monthlySlope} people per month ({yearlySlope} per year)
+        Trend: {monthlySlope} people per month ({yearlySlope} per year) · R²{" "}
+        {rSquared}
       </p>
       <div className="h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
